@@ -1,0 +1,10 @@
+core.repositoryformatversion=0
+core.filemode=false
+core.bare=false
+core.logallrefupdates=true
+core.symlinks=false
+core.ignorecase=true
+remote.origin.url=https://TU_TOKEN_AQUI@github.com/familylindley2026-source/LIN-PRO-X-WEB.git
+remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*
+user.name=familylindley2026-source
+user.email=tu_email_de_la_family@dominio.com

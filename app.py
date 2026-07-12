@@ -120,7 +120,7 @@ if menu_seleccionado == "📊 Dashboard":
     # 1.1 Tarjetas de KPI Superior
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("💰 Ventas del Día", f"$ {int(ventas_hoy):,.0f}")
-    m2.metric("🏦 Caja Actual (Neto)", f"$ {int(caja_actual):,.0f}")
+    m2.metric("🏦 Productos (Neto)", f"$ {int(caja_actual):,.0f}")
     m3.metric("👥 Clientes Registrados", f"{total_clientes}")
     m4.metric("🚨 Alertas de Stock", f"{alertas_stock} Insumos")
 
