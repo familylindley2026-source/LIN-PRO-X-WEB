@@ -928,3 +928,11 @@ class SistemaController:
             return False, f"Error al eliminar: {str(e)}"
         finally:
             db.close()
+
+    def obtener_todas_las_ventas(self):
+        """Obtiene el historial completo de ventas para analítica avanzada."""
+        db = self.SessionFactory()
+        try:
+            return db.query(Venta).order_by(Venta.fecha.asc()).all()
+        finally:
+            db.close()

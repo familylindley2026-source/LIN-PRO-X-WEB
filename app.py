@@ -175,164 +175,201 @@ menu_seleccionado = st.sidebar.radio("Módulos del Sistema:", menu_opciones)
 
 # 1. DASHBOARD GRÁFICO (REDISEÑADO)
 if menu_seleccionado == "📊 Dashboard":
-    st.title("📊 Panel de Control y Analítica")
-    try:
-        mets = controller.obtener_metricas_dashboard()
-        ventas_hoy = mets.get("ventas_hoy", 0)
-        caja_actual = mets.get("caja_actual", 0)
-        total_clientes = mets.get("total_clientes", 0)
-        alertas_stock = len(
-            [p for p in controller.obtener_insumos() if p.stock_actual <= 10]
+    st.title("📊 Panel de Control y Analítica Avanzada")
+
+    # ---------------------------------------------------------
+    # EXTRACCIÓN DE DATOS Y PREPARACIÓN (ETL)
+    # ---------------------------------------------------------
+    ventas_crudas = controller.obtener_todas_las_ventas()
+    insumos = controller.obtener_insumos()
+    productos = controller.obtener_productos_terminados()
+
+    if not ventas_crudas:
+        st.info(
+            "No hay datos históricos de ventas suficientes para proyectar analíticas."
         )
-    except:
-        ventas_hoy, caja_actual, total_clientes, alertas_stock = 0, 0, 0, 0
-
-    # 1.1 Tarjetas de KPI Superior
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("💰 Ventas del Día", f"$ {int(ventas_hoy):,.0f}")
-    m2.metric("🏦 Productos (Neto)", f"$ {int(caja_actual):,.0f}")
-    m3.metric("👥 Clientes Registrados", f"{total_clientes}")
-    m4.metric("🚨 Alertas de Stock", f"{alertas_stock} Insumos")
-
-    st.markdown("---")
-
-    # 1.2 Sección de Gráficos (Cuadrícula 2x2)
-    graf_col1, graf_col2 = st.columns(2)
-
-    with graf_col1:
-        # GRÁFICO 1: INVENTARIO VALORIZADO
-        st.markdown("#### 📦 Inventario: Stock y Valor ($)")
-        productos = controller.obtener_productos_terminados()
-        if productos:
-            data_inv = [
+    else:
+        # Convertir ventas a un DataFrame de Pandas para análisis rápido
+        df_ventas = pd.DataFrame(
+            [
                 {
-                    "Producto": p.nombre,
-                    "Valor Total": p.stock_actual * p.precio_venta,
-                    "Stock": p.stock_actual,
+                    "Fecha": v.fecha,
+                    "Año": v.fecha.year,
+                    "Mes": v.fecha.month,
+                    "Día": v.fecha.date(),
+                    "Vendedor": v.vendedor,
+                    "Canal": v.tipo_destinatario,
+                    "Total": v.total_neto,
+                    "Factura": v.factura_nro,
                 }
-                for p in productos
-                if p.stock_actual > 0
+                for v in ventas_crudas
             ]
-            if data_inv:
-                df_inv = (
-                    pd.DataFrame(data_inv)
-                    .sort_values(by="Valor Total", ascending=False)
-                    .head(8)
-                )
-                fig_inv = px.bar(
-                    df_inv,
-                    x="Producto",
-                    y="Valor Total",
-                    text="Stock",
+        )
+
+        # ---------------------------------------------------------
+        # ZONA DE FILTROS ADAPTATIVOS
+        # ---------------------------------------------------------
+        st.markdown("### 🎛️ Filtros de Análisis")
+        f_col1, f_col2, f_col3 = st.columns(3)
+
+        lista_anios = ["Todos"] + sorted(list(df_ventas["Año"].unique()), reverse=True)
+        lista_meses = ["Todos", 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        lista_vendedores = ["Todos"] + sorted(list(df_ventas["Vendedor"].unique()))
+
+        with f_col1:
+            anio_sel = st.selectbox("📅 Año", lista_anios)
+        with f_col2:
+            mes_sel = st.selectbox("📆 Mes", lista_meses)
+        with f_col3:
+            vend_sel = st.selectbox("💼 Vendedor", lista_vendedores)
+
+        # Aplicar filtros lógicos
+        df_filtrado = df_ventas.copy()
+        if anio_sel != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["Año"] == anio_sel]
+        if mes_sel != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["Mes"] == mes_sel]
+        if vend_sel != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["Vendedor"] == vend_sel]
+
+        # ---------------------------------------------------------
+        # CÁLCULO DE KPIs ESTRATÉGICOS
+        # ---------------------------------------------------------
+        ventas_totales = df_filtrado["Total"].sum()
+        num_operaciones = df_filtrado["Factura"].nunique()
+        ticket_promedio = ventas_totales / num_operaciones if num_operaciones > 0 else 0
+
+        # Capital estancado (Insumos + PT con stock > 0)
+        capital_insumos = sum(
+            i.stock_actual * i.costo_promedio for i in insumos if i.stock_actual > 0
+        )
+        capital_pt = sum(
+            p.stock_actual * p.precio_venta for p in productos if p.stock_actual > 0
+        )
+        capital_total_bodega = capital_insumos + capital_pt
+
+        st.markdown("---")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric(
+            "💰 Ventas (Periodo)",
+            f"$ {int(ventas_totales):,.0f}",
+            f"{num_operaciones} Cierres",
+        )
+        m2.metric(
+            "🎯 Ticket Promedio",
+            f"$ {int(ticket_promedio):,.0f}",
+            "Eficiencia de venta",
+        )
+        m3.metric(
+            "📦 Valor en Bodega",
+            f"$ {int(capital_total_bodega):,.0f}",
+            "Capital Inmovilizado",
+        )
+        m4.metric(
+            "🚨 Alertas de Stock",
+            f"{len([p for p in insumos if p.stock_actual <= 10])}",
+            "Insumos Críticos",
+        )
+        st.markdown("---")
+
+        # ---------------------------------------------------------
+        # VISUALIZACIÓN DE DATOS (GRÁFICOS)
+        # ---------------------------------------------------------
+        graf_col1, graf_col2 = st.columns(2)
+
+        with graf_col1:
+            # GRÁFICO 1: LÍNEA DE TIEMPO DE VENTAS
+            st.markdown("#### 📈 Comportamiento de Ventas en el Tiempo")
+            if not df_filtrado.empty:
+                df_tiempo = df_filtrado.groupby("Día")["Total"].sum().reset_index()
+                fig_line = px.line(
+                    df_tiempo,
+                    x="Día",
+                    y="Total",
                     template="plotly_dark",
+                    markers=True,
                     color_discrete_sequence=["#00b4d8"],
                 )
-                fig_inv.update_traces(textposition="outside")
-                fig_inv.update_layout(margin=dict(l=20, r=20, t=30, b=20), height=350)
-                st.plotly_chart(fig_inv, use_container_width=True)
+                fig_line.update_layout(
+                    margin=dict(l=20, r=20, t=30, b=20),
+                    height=350,
+                    yaxis_title="Ingresos ($)",
+                )
+                st.plotly_chart(fig_line, use_container_width=True)
             else:
-                st.info("No hay productos con stock valorizado.")
+                st.warning("No hay ventas en los filtros seleccionados.")
 
-        # GRÁFICO 3: RENDIMIENTO DEUDA VS ABONOS
-        st.markdown("#### ⚖️ Rendimiento: Deuda vs Abonos")
-        deudas = controller.obtener_cartera()
-        if deudas:
-            data_deuda = []
-            for d in deudas:
-                abono = d.total_neto - d.saldo_pendiente
-                data_deuda.append(
-                    {
-                        "Cliente": d.cliente.nombre,
-                        "Monto ($)": abono,
-                        "Tipo": "Abono Aplicado",
-                    }
-                )
-                data_deuda.append(
-                    {
-                        "Cliente": d.cliente.nombre,
-                        "Monto ($)": d.saldo_pendiente,
-                        "Tipo": "Saldo Pendiente",
-                    }
-                )
-            df_deuda = pd.DataFrame(data_deuda)
-            fig_deuda = px.bar(
-                df_deuda,
-                x="Cliente",
-                y="Monto ($)",
-                color="Tipo",
-                template="plotly_dark",
-                barmode="stack",
-                color_discrete_map={
-                    "Abono Aplicado": "#00b4d8",
-                    "Saldo Pendiente": "#ff4d4d",
-                },
-            )
-            fig_deuda.update_layout(margin=dict(l=20, r=20, t=30, b=20), height=350)
-            st.plotly_chart(fig_deuda, use_container_width=True)
-        else:
-            st.success("No hay deudas pendientes en cartera.")
-
-    with graf_col2:
-        # GRÁFICO 2: TOP 5 PRODUCTOS MÁS VENDIDOS
-        st.markdown("#### 🏆 Top 5 Productos (Cajas Vendidas)")
-        logs = controller.obtener_auditoria_kardex()
-        if logs:
-            ventas_logs = [
-                l
-                for l in logs
-                if "Venta" in l.motivo and l.operacion == "Salida" and l.producto
-            ]
-            if ventas_logs:
-                df_top = pd.DataFrame(
-                    [
-                        {"Producto": l.producto.nombre, "Cantidad": l.cantidad}
-                        for l in ventas_logs
-                    ]
-                )
-                df_top = (
-                    df_top.groupby("Producto")
-                    .sum()
-                    .reset_index()
-                    .sort_values(by="Cantidad", ascending=False)
-                    .head(5)
-                )
-                fig_top = px.bar(
-                    df_top,
-                    x="Producto",
-                    y="Cantidad",
-                    text="Cantidad",
-                    template="plotly_dark",
-                    color_discrete_sequence=["#2FA572"],
-                )
-                fig_top.update_traces(textposition="outside")
-                fig_top.update_layout(margin=dict(l=20, r=20, t=30, b=20), height=350)
-                st.plotly_chart(fig_top, use_container_width=True)
-            else:
-                st.info("No hay suficientes ventas registradas para el Top 5.")
-
-        # GRÁFICO 4: DISTRIBUCIÓN DE CAPITAL EN INSUMOS
-        st.markdown("#### 🍩 Capital Distribuido por Categoría (Insumos)")
-        insumos = controller.obtener_insumos()
-        if insumos:
-            data_cat = [
-                {"Categoría": i.categoria, "Capital": i.stock_actual * i.costo_promedio}
-                for i in insumos
-                if i.stock_actual > 0
-            ]
-            if data_cat:
-                df_cat = pd.DataFrame(data_cat).groupby("Categoría").sum().reset_index()
+            # GRÁFICO 3: VENTAS POR CANAL/DESTINATARIO
+            st.markdown("#### 🎯 Ingresos por Canal Comercial")
+            if not df_filtrado.empty:
+                df_canal = df_filtrado.groupby("Canal")["Total"].sum().reset_index()
                 fig_pie = px.pie(
-                    df_cat,
-                    values="Capital",
-                    names="Categoría",
-                    hole=0.5,
+                    df_canal,
+                    values="Total",
+                    names="Canal",
+                    hole=0.4,
                     template="plotly_dark",
                     color_discrete_sequence=px.colors.qualitative.Pastel,
                 )
                 fig_pie.update_layout(margin=dict(l=20, r=20, t=30, b=20), height=350)
                 st.plotly_chart(fig_pie, use_container_width=True)
-            else:
-                st.info("No hay capital invertido en insumos.")
+
+        with graf_col2:
+            # GRÁFICO 2: RENDIMIENTO POR VENDEDOR
+            st.markdown("#### 🏆 Desempeño Comercial por Vendedor")
+            if not df_filtrado.empty:
+                df_vend = (
+                    df_filtrado.groupby("Vendedor")["Total"]
+                    .sum()
+                    .reset_index()
+                    .sort_values(by="Total", ascending=True)
+                )
+                fig_bar_v = px.bar(
+                    df_vend,
+                    x="Total",
+                    y="Vendedor",
+                    orientation="h",
+                    text="Total",
+                    template="plotly_dark",
+                    color_discrete_sequence=["#2FA572"],
+                )
+                fig_bar_v.update_traces(
+                    texttemplate="$ %{text:,.0f}", textposition="outside"
+                )
+                fig_bar_v.update_layout(
+                    margin=dict(l=20, r=20, t=30, b=20),
+                    height=350,
+                    xaxis_title="Ingresos Generados",
+                )
+                st.plotly_chart(fig_bar_v, use_container_width=True)
+
+            # GRÁFICO 4: DISTRIBUCIÓN DEL CAPITAL EN BODEGA
+            st.markdown("#### ⚖️ Estructura del Capital en Inventario")
+            df_inv = pd.DataFrame(
+                [
+                    {"Categoría": "Materia Prima (Insumos)", "Valor": capital_insumos},
+                    {"Categoría": "Producto Terminado", "Valor": capital_pt},
+                ]
+            )
+            fig_inv_bar = px.bar(
+                df_inv,
+                x="Categoría",
+                y="Valor",
+                text="Valor",
+                color="Categoría",
+                template="plotly_dark",
+                color_discrete_map={
+                    "Materia Prima (Insumos)": "#f39c12",
+                    "Producto Terminado": "#8e44ad",
+                },
+            )
+            fig_inv_bar.update_traces(
+                texttemplate="$ %{text:,.0f}", textposition="outside"
+            )
+            fig_inv_bar.update_layout(
+                margin=dict(l=20, r=20, t=30, b=20), height=350, showlegend=False
+            )
+            st.plotly_chart(fig_inv_bar, use_container_width=True)
 
 
 # 2. PUNTO DE VENTA
@@ -576,7 +613,7 @@ elif menu_seleccionado == "📦 Entradas (Compras)":
         submit_eliminar = st.form_submit_button(
             "Eliminar Compra Permanentemente", type="primary"
         )
-    #Zona de Seguridad: Eliminar Compra
+        # Zona de Seguridad: Eliminar Compra
         if submit_eliminar:
             if compra_a_eliminar != "Seleccione una compra...":
                 exito, msg = controller.eliminar_compra_erronea(compra_a_eliminar)
@@ -588,8 +625,7 @@ elif menu_seleccionado == "📦 Entradas (Compras)":
             else:
                 st.warning("Por favor, selecciona una compra válida de la lista.")
 
-
-    #Zona de Seguridad: Eliminar Ventas
+    # Zona de Seguridad: Eliminar Ventas
     st.write("---")
     st.markdown("### 🗑️ Zona de Seguridad: Eliminar Pedido")
     st.info(
