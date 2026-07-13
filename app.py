@@ -336,7 +336,7 @@ if menu_seleccionado == "📊 Dashboard":
             "Insumos Críticos",
         )
         st.markdown("---")
-       
+
         # =========================================================
         # 1. GRÁFICO SUPERIOR: FULL-WIDTH (Comportamiento de Ventas)
         # =========================================================
@@ -710,6 +710,51 @@ elif menu_seleccionado == "🛒 Punto de Venta":
             else:
                 st.error(msg)
 
+    # ==========================================
+    # 🗑️ ZONA DE ELIMINACIÓN DE VENTAS
+    # ==========================================
+    st.write("---")
+    st.markdown("### 🗑️ Zona de Seguridad: Eliminar Pedido")
+    st.info(
+        "Si registraste una venta por error, selecciona la factura de la lista. "
+        "Se borrará del sistema y los productos regresarán automáticamente a tu stock."
+    )
+
+    lista_ventas = controller.obtener_todas_las_ventas()
+
+    with st.form("form_eliminar_pedido"):
+        if lista_ventas:
+            # Formateamos la lista para mostrar la factura, cliente y total
+            opciones_ventas = [
+                f"{v.factura_nro} - {v.cliente.nombre if v.cliente else 'Consumidor'} ($ {v.total_neto:,.0f})"
+                for v in reversed(lista_ventas)
+            ]
+            pedido_a_eliminar = st.selectbox(
+                "Selecciona la Factura / Orden de Venta",
+                options=["Seleccione un pedido..."] + opciones_ventas,
+            )
+        else:
+            pedido_a_eliminar = "Seleccione un pedido..."
+            st.warning("No hay ventas registradas en el sistema.")
+
+        # Botón rojo para acciones destructivas
+        submit_eliminar = st.form_submit_button(
+            "Eliminar Pedido Permanentemente", type="primary"
+        )
+
+        if submit_eliminar:
+            if pedido_a_eliminar != "Seleccione un pedido...":
+                # Extraemos solo el "FACT-XXX" que está antes del primer guion
+                nro_factura = pedido_a_eliminar.split(" - ")[0]
+                exito, msg = controller.eliminar_pedido_erroneo(nro_factura)
+                if exito:
+                    st.success(msg)
+                    st.rerun()  # Recarga para actualizar la lista y el inventario visualmente
+                else:
+                    st.error(msg)
+            else:
+                st.warning("Por favor, selecciona un pedido válido de la lista.")
+
 # 3. ENTRADAS COMPRAS
 elif menu_seleccionado == "📦 Entradas (Compras)":
     st.title("📦 Registro de Pedidos y Entradas")
@@ -842,34 +887,7 @@ elif menu_seleccionado == "📦 Entradas (Compras)":
             else:
                 st.warning("Por favor, selecciona una compra válida de la lista.")
 
-    # Zona de Seguridad: Eliminar Ventas
-    st.write("---")
-    st.markdown("### 🗑️ Zona de Seguridad: Eliminar Pedido")
-    st.info(
-        "Si registraste una venta por error, ingresa el número de orden para borrarla del sistema."
-    )
-
-    with st.form("form_eliminar_pedido"):
-        orden_a_eliminar = st.text_input("N° Factura / Orden ()")
-
-        # Botón rojo para acciones destructivas
-        submit_eliminar = st.form_submit_button(
-            "Eliminar Pedido Permanentemente", type="primary"
-        )
-
-        if submit_eliminar:
-            if orden_a_eliminar:
-                exito, msg = controller.eliminar_pedido_erroneo(
-                    orden_a_eliminar, st.session_state["empresa_id"]
-                )
-                if exito:
-                    st.success(msg)
-                else:
-                    st.error(msg)
-            else:
-                st.warning("Escribe un número de orden primero.")
-
-
+    
 # 4. PRODUCCIÓN
 elif menu_seleccionado == "🧪 Producción y Fórmulas":
     st.title("🧪 Planta y Laboratorio")
