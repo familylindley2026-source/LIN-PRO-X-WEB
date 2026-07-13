@@ -189,7 +189,7 @@ if menu_seleccionado == "📊 Dashboard":
             "No hay datos históricos de ventas suficientes para proyectar analíticas."
         )
     else:
-        # Convertir ventas a un DataFrame de Pandas para análisis rápido
+        # Convertir ventas a un DataFrame de Pandas (AÑADIMOS EL MEDIO DE PAGO)
         df_ventas = pd.DataFrame(
             [
                 {
@@ -199,6 +199,7 @@ if menu_seleccionado == "📊 Dashboard":
                     "Día": v.fecha.date(),
                     "Vendedor": v.vendedor,
                     "Canal": v.tipo_destinatario,
+                    "Medio_Pago": v.medio_pago,  # <--- Nuevo campo para el gráfico 5
                     "Total": v.total_neto,
                     "Factura": v.factura_nro,
                 }
@@ -212,8 +213,27 @@ if menu_seleccionado == "📊 Dashboard":
         st.markdown("### 🎛️ Filtros de Análisis")
         f_col1, f_col2, f_col3 = st.columns(3)
 
+        # Diccionario para mapear números a nombres legibles de meses
+        MESES_TRADUCCION = {
+            1: "Enero",
+            2: "Febrero",
+            3: "Marzo",
+            4: "Abril",
+            5: "Mayo",
+            6: "Junio",
+            7: "Julio",
+            8: "Agosto",
+            9: "Septiembre",
+            10: "Octubre",
+            11: "Noviembre",
+            12: "Diciembre",
+        }
+
+        df_ventas["Nombre_Mes"] = df_ventas["Mes"].map(MESES_TRADUCCION)
+
         lista_anios = ["Todos"] + sorted(list(df_ventas["Año"].unique()), reverse=True)
-        lista_meses = ["Todos", 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        meses_existentes_num = sorted(list(df_ventas["Mes"].unique()))
+        lista_meses = ["Todos"] + [MESES_TRADUCCION[m] for m in meses_existentes_num]
         lista_vendedores = ["Todos"] + sorted(list(df_ventas["Vendedor"].unique()))
 
         with f_col1:
@@ -228,7 +248,7 @@ if menu_seleccionado == "📊 Dashboard":
         if anio_sel != "Todos":
             df_filtrado = df_filtrado[df_filtrado["Año"] == anio_sel]
         if mes_sel != "Todos":
-            df_filtrado = df_filtrado[df_filtrado["Mes"] == mes_sel]
+            df_filtrado = df_filtrado[df_filtrado["Nombre_Mes"] == mes_sel]
         if vend_sel != "Todos":
             df_filtrado = df_filtrado[df_filtrado["Vendedor"] == vend_sel]
 
@@ -239,7 +259,6 @@ if menu_seleccionado == "📊 Dashboard":
         num_operaciones = df_filtrado["Factura"].nunique()
         ticket_promedio = ventas_totales / num_operaciones if num_operaciones > 0 else 0
 
-        # Capital estancado (Insumos + PT con stock > 0)
         capital_insumos = sum(
             i.stock_actual * i.costo_promedio for i in insumos if i.stock_actual > 0
         )
@@ -272,49 +291,47 @@ if menu_seleccionado == "📊 Dashboard":
         )
         st.markdown("---")
 
-        # ---------------------------------------------------------
-        # VISUALIZACIÓN DE DATOS (GRÁFICOS)
-        # ---------------------------------------------------------
+        # =========================================================
+        # 1. GRÁFICO SUPERIOR: FULL-WIDTH (Comportamiento de Ventas)
+        # =========================================================
+        st.markdown("#### 📈 Comportamiento de Ventas en el Tiempo")
+        if not df_filtrado.empty:
+            df_tiempo = df_filtrado.groupby("Día")["Total"].sum().reset_index()
+            # Esta línea evita que salgan horas raras en el eje X, forzando a que sea texto puro
+            df_tiempo["Día"] = df_tiempo["Día"].astype(str)
+
+            # Usamos px.area para que se vea lleno por debajo como tu referencia
+            fig_line = px.area(
+                df_tiempo,
+                x="Día",
+                y="Total",
+                template="plotly_dark",
+                markers=True,
+                color_discrete_sequence=["#00b4d8"],
+            )
+            # Agregamos las etiquetas de precio a cada punto
+            fig_line.update_traces(
+                mode="lines+markers+text",
+                texttemplate="$ %{y:,.0f}",
+                textposition="top center",
+            )
+            fig_line.update_layout(
+                margin=dict(l=20, r=20, t=30, b=20),
+                height=350,
+                yaxis_title="Ingresos ($)",
+            )
+            st.plotly_chart(fig_line, use_container_width=True)
+        else:
+            st.warning("No hay ventas en los filtros seleccionados.")
+
+        st.markdown("---")
+
+        # =========================================================
+        # GRÁFICOS INFERIORES: CUADRÍCULA 2x2 (4 Gráficos)
+        # =========================================================
         graf_col1, graf_col2 = st.columns(2)
 
         with graf_col1:
-            # GRÁFICO 1: LÍNEA DE TIEMPO DE VENTAS
-            st.markdown("#### 📈 Comportamiento de Ventas en el Tiempo")
-            if not df_filtrado.empty:
-                df_tiempo = df_filtrado.groupby("Día")["Total"].sum().reset_index()
-                fig_line = px.line(
-                    df_tiempo,
-                    x="Día",
-                    y="Total",
-                    template="plotly_dark",
-                    markers=True,
-                    color_discrete_sequence=["#00b4d8"],
-                )
-                fig_line.update_layout(
-                    margin=dict(l=20, r=20, t=30, b=20),
-                    height=350,
-                    yaxis_title="Ingresos ($)",
-                )
-                st.plotly_chart(fig_line, use_container_width=True)
-            else:
-                st.warning("No hay ventas en los filtros seleccionados.")
-
-            # GRÁFICO 3: VENTAS POR CANAL/DESTINATARIO
-            st.markdown("#### 🎯 Ingresos por Canal Comercial")
-            if not df_filtrado.empty:
-                df_canal = df_filtrado.groupby("Canal")["Total"].sum().reset_index()
-                fig_pie = px.pie(
-                    df_canal,
-                    values="Total",
-                    names="Canal",
-                    hole=0.4,
-                    template="plotly_dark",
-                    color_discrete_sequence=px.colors.qualitative.Pastel,
-                )
-                fig_pie.update_layout(margin=dict(l=20, r=20, t=30, b=20), height=350)
-                st.plotly_chart(fig_pie, use_container_width=True)
-
-        with graf_col2:
             # GRÁFICO 2: RENDIMIENTO POR VENDEDOR
             st.markdown("#### 🏆 Desempeño Comercial por Vendedor")
             if not df_filtrado.empty:
@@ -343,7 +360,73 @@ if menu_seleccionado == "📊 Dashboard":
                 )
                 st.plotly_chart(fig_bar_v, use_container_width=True)
 
-            # GRÁFICO 4: DISTRIBUCIÓN DEL CAPITAL EN BODEGA
+            # GRÁFICO 3: NUEVO GRÁFICO TIPO DE PAGO (Dona + Tabla)
+            st.markdown("#### 💳 Ingresos por Medio de Pago")
+            if not df_filtrado.empty:
+                # Agrupar y ordenar datos de mayor a menor
+                df_pago = (
+                    df_filtrado.groupby("Medio_Pago")["Total"]
+                    .sum()
+                    .reset_index()
+                    .sort_values(by="Total", ascending=False)
+                )
+
+                # Calcular el porcentaje que representa cada medio de pago
+                total_ingresos = df_pago["Total"].sum()
+                df_pago["%"] = (df_pago["Total"] / total_ingresos) * 100
+
+                # 1. Crear el Gráfico de Dona
+                fig_pago = px.pie(
+                    df_pago,
+                    values="Total",
+                    names="Medio_Pago",
+                    hole=0.45,  # Esto crea el "hueco" en el centro para que sea dona
+                    template="plotly_dark",
+                    color_discrete_sequence=px.colors.qualitative.Pastel,
+                )
+                # Mostrar solo el porcentaje por fuera de la dona, sin leyenda lateral (como en tu imagen)
+                fig_pago.update_traces(textposition="outside", textinfo="percent")
+                fig_pago.update_layout(
+                    margin=dict(l=20, r=20, t=10, b=10), height=280, showlegend=False
+                )
+
+                # Renderizar Gráfico
+                st.plotly_chart(fig_pago, use_container_width=True)
+
+                # 2. Preparar y Mostrar la Tabla de Resumen
+                df_tabla = df_pago.copy()
+                df_tabla = df_tabla.rename(
+                    columns={"Medio_Pago": "Medio", "Total": "Monto"}
+                )
+
+                # Formatear el dinero y el porcentaje para que se vean elegantes
+                df_tabla["Monto"] = df_tabla["Monto"].apply(
+                    lambda x: f"$ {int(x):,.0f}"
+                )
+                df_tabla["%"] = df_tabla["%"].apply(lambda x: f"{x:.1f} %")
+
+                # Mostrar la tabla ajustada al ancho de la columna sin el índice numérico
+                st.dataframe(df_tabla, use_container_width=True, hide_index=True)
+            else:
+                st.info("No hay ingresos registrados para mostrar.")
+
+        with graf_col2:
+            # GRÁFICO 4: VENTAS POR CANAL/DESTINATARIO
+            st.markdown("#### 🎯 Ingresos por Canal Comercial")
+            if not df_filtrado.empty:
+                df_canal = df_filtrado.groupby("Canal")["Total"].sum().reset_index()
+                fig_pie = px.pie(
+                    df_canal,
+                    values="Total",
+                    names="Canal",
+                    hole=0.4,
+                    template="plotly_dark",
+                    color_discrete_sequence=px.colors.qualitative.Set2,
+                )
+                fig_pie.update_layout(margin=dict(l=20, r=20, t=30, b=20), height=350)
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+            # GRÁFICO 5: DISTRIBUCIÓN DEL CAPITAL EN BODEGA
             st.markdown("#### ⚖️ Estructura del Capital en Inventario")
             df_inv = pd.DataFrame(
                 [
