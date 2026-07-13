@@ -1,7 +1,4 @@
 @echo off
-:: Esta linea asegura que la consola se abra exactamente en la carpeta del proyecto
-cd /d "%~dp0"
-
 title Actualizando LIN-PRO X WEB en la Nube
 color 0B
 
@@ -11,11 +8,7 @@ echo ===================================================
 echo.
 
 echo [1/4] Activando entorno virtual de Python (.venv)...
-if exist ".venv\Scripts\activate.bat" (
-    call .venv\Scripts\activate.bat
-) else (
-    echo [ADVERTENCIA] No se encontro la carpeta .venv.
-)
+call .venv\Scripts\activate.bat
 echo.
 
 echo [2/4] Empaquetando los archivos modificados...
@@ -31,7 +24,7 @@ git push origin main
 echo.
 
 echo ===================================================
-echo ✅ ¡PROCESO FINALIZADO!
+echo ✅ ¡ACTUALIZACION COMPLETADA CON EXITO!
 echo ===================================================
 echo.
 pause
