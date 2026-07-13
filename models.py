@@ -26,6 +26,7 @@ class Proveedor(Base):
     nombre = Column(String(100), unique=True, nullable=False)
     activo = Column(Boolean, default=True, nullable=False)
     insumos = relationship("Insumo", back_populates="proveedor")
+    empresa_id = Column(String, index=True)
 
 
 class Insumo(Base):
@@ -40,6 +41,7 @@ class Insumo(Base):
     proveedor_id = Column(Integer, ForeignKey("proveedores.id"), nullable=True)
     activo = Column(Boolean, default=True, nullable=False)
     proveedor = relationship("Proveedor", back_populates="insumos")
+    empresa_id = Column(String, index=True)
 
 
 class CatalogoProducto(Base):
@@ -50,6 +52,7 @@ class CatalogoProducto(Base):
     precio_publico = Column(Float, default=0.0)
     dias_cobertura = Column(Integer, default=30)
     puntos_pv = Column(Integer, default=0)
+    empresa_id = Column(String, index=True)
 
 
 class ProductoTerminado(Base):
@@ -66,11 +69,12 @@ class ProductoTerminado(Base):
     dias_consumo = Column(Integer, default=30)
     puntos_pv = Column(Integer, default=0)
     activo = Column(Boolean, default=True, nullable=False)
-
+    empresa_id = Column(String, index=True)
 
 class Receta(Base):
     __tablename__ = "recetas"
     id = Column(Integer, primary_key=True, autoincrement=True)
+    empresa_id = Column(String, index=True)
     nombre = Column(String(100), nullable=False)
     volumen_lote_base = Column(Float, default=1000.0)
     producto_id = Column(Integer, ForeignKey("productos_terminados.id"), nullable=False)
@@ -85,6 +89,7 @@ class RecetaDetalle(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     receta_id = Column(Integer, ForeignKey("recetas.id"), nullable=False)
     insumo_id = Column(Integer, ForeignKey("insumos.id"), nullable=False)
+    empresa_id = Column(String, index=True)
     cantidad_requerida = Column(Float, nullable=False, default=0.0)
     cantidad_necesaria = Column(Float, nullable=False, default=0.0)
     receta = relationship("Receta", back_populates="detalles")
@@ -99,7 +104,7 @@ class ControlCaja(Base):
     ingresos = Column(Float, default=0.0)
     egresos = Column(Float, default=0.0)
     usuario_cajero = Column(String(50), nullable=False)
-
+    empresa_id = Column(String, index=True)
 
 class Cliente(Base):
     __tablename__ = "clientes"
@@ -110,6 +115,7 @@ class Cliente(Base):
     email = Column(String(100))
     ciudad = Column(String(100), default="Cartagena")
     tipo_cliente = Column(String(50), default="General")
+    empresa_id = Column(String, index=True)
     activo = Column(Boolean, default=True)
 
 
@@ -118,6 +124,7 @@ class Asesor(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     nombre = Column(String(100), nullable=False)
     telefono = Column(String(20))
+    empresa_id = Column(String, index=True)
     activo = Column(Boolean, default=True)
 
 
@@ -127,6 +134,7 @@ class GastoOperativo(Base):
     fecha = Column(DateTime, default=get_local_time)
     descripcion = Column(String(200), nullable=False)
     monto = Column(Float, nullable=False)
+    empresa_id = Column(String, index=True)
 
 
 class VentaDetalle(Base):
@@ -139,6 +147,7 @@ class VentaDetalle(Base):
     subtotal = Column(Float, nullable=False)
     venta = relationship("Venta", back_populates="detalles")
     producto = relationship("ProductoTerminado")
+    empresa_id = Column(String, index=True)
 
 
 class Venta(Base):
@@ -159,7 +168,7 @@ class Venta(Base):
     detalles = relationship(
         "VentaDetalle", back_populates="venta", cascade="all, delete-orphan"
     )
-
+    empresa_id = Column(String, index=True)
 
 class Abono(Base):
     __tablename__ = "abonos"
@@ -168,6 +177,7 @@ class Abono(Base):
     fecha = Column(DateTime, default=get_local_time)
     monto = Column(Float, nullable=False)
     venta = relationship("Venta")
+    empresa_id = Column(String, index=True)
 
 
 class KardexMovimiento(Base):
@@ -182,6 +192,7 @@ class KardexMovimiento(Base):
     involucrado = Column(String(100), nullable=True)
     producto = relationship("ProductoTerminado")
     insumo = relationship("Insumo")
+    empresa_id = Column(String, index=True)
 
 
 # Asegúrate de que Date esté importado al principio de models.py:
