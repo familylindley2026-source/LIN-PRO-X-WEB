@@ -2,19 +2,82 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import urllib.parse
-import plotly.express as px  # <-- NUEVA LIBRERÍA DE GRÁFICOS
+import plotly.express as px
 
-# --- IMPORTACIONES CLAVE ---
-from database import SessionLocal
+# 1. CONFIGURACIÓN DE PÁGINA (Debe ir antes de cualquier otro comando de Streamlit)
+st.set_page_config(page_title="LIN-PRO X WEB", page_icon="🏭", layout="wide")
+
+# 2. IMPORTACIONES DE TU ARQUITECTURA
+from database import (
+    SessionLocal,
+)  # Usamos SessionLocal ya que vi que lo tenías en tu código original
 from controllers import SistemaController
+
+# 3. INICIALIZAR EL CONTROLADOR CON LA BASE DE DATOS
+controller = SistemaController(SessionLocal)
+
+# ---------------------------------------------------------
+# 4. INICIALIZACIÓN DE LA MEMORIA DE SESIÓN
+# ---------------------------------------------------------
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
+
+# ---------------------------------------------------------
+# 5. PANTALLA DE INICIO DE SESIÓN (LOGIN)
+# ---------------------------------------------------------
+if not st.session_state["autenticado"]:
+    st.markdown(
+        "<h1 style='text-align: center; color: #00b4d8;'>LIN-PRO X WEB</h1>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<h3 style='text-align: center;'>Acceso Empresarial</h3>",
+        unsafe_allow_html=True,
+    )
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+
+    with col2:
+        with st.form("formulario_login"):
+            usuario_input = st.text_input(
+                "👤 Usuario", placeholder="Ej: IVONNE BERNATE"
+            )
+            clave_input = st.text_input("🔑 Contraseña", type="password")
+
+            submit_login = st.form_submit_button(
+                "Ingresar al Sistema", use_container_width=True, type="primary"
+            )
+
+            if submit_login:
+                if not usuario_input or not clave_input:
+                    st.warning("Por favor, llena ambos campos.")
+                else:
+                    exito, datos_usuario = controller.verificar_acceso(
+                        usuario_input, clave_input
+                    )
+
+                    if exito:
+                        st.session_state["autenticado"] = True
+                        st.session_state["usuario"] = datos_usuario["usuario"]
+                        st.session_state["empresa_id"] = datos_usuario["empresa_id"]
+                        st.success("¡Acceso exitoso! Cargando panel...")
+                        st.rerun()
+                    else:
+                        st.error("❌ Usuario o contraseña incorrectos.")
+
+    # 🛑 MURO DE CONTENCIÓN: Si no está autenticado, la lectura del código muere aquí.
+    st.stop()
+
+# =====================================================================
+# AQUÍ DEBAJO DEBE CONTINUAR TU CÓDIGO ACTUAL (Tus st.sidebar.radio, tus módulos, etc.)
+# =====================================================================
+
 
 # ==========================================
 # ⚙️ CONFIGURACIÓN GLOBAL Y ESTILOS
 # ==========================================
 NOMBRE_NEGOCIO = "IVONNE BERNATE PRODUCTOS CAPILARES"
 NUMERO_WHATSAPP = "573016884590"
-
-st.set_page_config(page_title="LIN-PRO X Cloud", page_icon="🏭", layout="wide")
 
 if "controller" not in st.session_state:
     st.session_state.controller = SistemaController(SessionLocal)
@@ -58,7 +121,7 @@ st.sidebar.markdown("### 👤 Bienvenido: IVONNE BERNATE")
 st.sidebar.markdown("⭐ **Plan Activo:** Plan Mensual (Distribuidores)")
 st.sidebar.success("⏳ **Tiempo restante: 13 días**")
 
-with st.sidebar.expander("🚀 PLANES DE SUSCRIPCIÓN LIN-PRO X"):
+with st.sidebar.expander("🚀 PLANES DE SUSCRIPCIÓN LIN-PRO X WEB"):
     st.markdown("""
     🥇 **1. Plan Personal** • 25.000 COP / mes
     🥈 **2. Plan Trimestral** • 65.000 COP / trim
@@ -69,12 +132,22 @@ with st.sidebar.expander("🚀 PLANES DE SUSCRIPCIÓN LIN-PRO X"):
 
 st.sidebar.markdown("---")
 st.sidebar.markdown(
-    "<div class='titulo-sidebar'>LIN - PRO X</div>", unsafe_allow_html=True
+    "<div class='titulo-sidebar'>LIN - PRO X WEB</div>", unsafe_allow_html=True
 )
 st.sidebar.markdown(
     "<div class='subtitulo-sidebar'>Ivonne Bernate | Costos & Planta</div>",
     unsafe_allow_html=True,
 )
+
+# ---------------------------------------------------------
+# 3. SISTEMA PRINCIPAL (Solo se ejecuta si pasó el muro de arriba)
+# ---------------------------------------------------------
+# CERRAR SESIÓN (Se dibujará en la parte superior del menú lateral)
+if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, type="primary"):
+    st.session_state.clear()  # Borra toda la memoria
+    st.rerun()  # Refresca la página para volver al Login
+
+st.sidebar.write("---")
 
 menu_opciones = [
     "📊 Dashboard",
@@ -1008,9 +1081,16 @@ elif menu_seleccionado == "🔒 Seguridad y Cuenta":
     st.markdown("Administra las credenciales de acceso a tu panel empresarial.")
     st.write("---")
 
-    # Para este ejemplo, simulamos que el usuario logueado es IVONNE BERNATE.
-    # En un futuro, esto vendrá de st.session_state.usuario_logueado
-    usuario_actual = "IVONNE BERNATE"
+    # --- SIMULACIÓN TEMPORAL DE SESIÓN --- (¡BÓRRALO!)
+    if "usuario" not in st.session_state:
+        st.session_state["usuario"] = "IVONNE BERNATE"
+    if "empresa_id" not in st.session_state:
+        st.session_state["empresa_id"] = "Fuxion_Lindley"
+    # -------------------------------------
+    # -------------------------------------
+
+    # Tomamos el usuario real de la memoria del sistema
+    usuario_actual = st.session_state["usuario"]
 
     try:
         datos_cuenta = controller.obtener_datos_suscriptor(usuario_actual)
@@ -1025,22 +1105,22 @@ elif menu_seleccionado == "🔒 Seguridad y Cuenta":
             hoy = datetime.now().date()
             dias_restantes = (datos_cuenta.fecha_vencimiento - hoy).days
 
-            # Tarjeta HTML/CSS idéntica a tu diseño (Imagen 2)
+            # Tarjeta HTML/CSS idéntica a tu diseño
             tarjeta_html = f"""
-            <div style="background: linear-gradient(135deg, #1c2b4a 0%, #152238 100%); 
-                        padding: 25px; 
-                        border-radius: 12px; 
-                        border-left: 6px solid #00b4d8;
-                        box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
-                <h4 style="color: #00b4d8; margin-top: 0; display: flex; align-items: center;">
-                    <span style="font-size: 1.5em; margin-right: 10px;">📋</span> Resumen de la Cuenta
-                </h4>
-                <p style="color: #e2e8f0; font-size: 1.05em; margin: 10px 0;">• <b>Usuario principal:</b> {datos_cuenta.usuario}</p>
-                <p style="color: #e2e8f0; font-size: 1.05em; margin: 10px 0;">• <b>ID Empresarial:</b> {datos_cuenta.empresa_id}</p>
-                <p style="color: #e2e8f0; font-size: 1.05em; margin: 10px 0;">• <b>Licencia Activa:</b> {datos_cuenta.plan}</p>
-                <p style="color: #e2e8f0; font-size: 1.05em; margin: 10px 0;">• <b>Días Restantes:</b> {dias_restantes} días</p>
-            </div>
-            """
+                <div style="background: linear-gradient(135deg, #1c2b4a 0%, #152238 100%); 
+                            padding: 25px; 
+                            border-radius: 12px; 
+                            border-left: 6px solid #00b4d8;
+                            box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+                    <h4 style="color: #00b4d8; margin-top: 0; display: flex; align-items: center;">
+                        <span style="font-size: 1.5em; margin-right: 10px;">📋</span> Resumen de la Cuenta
+                    </h4>
+                    <p style="color: #e2e8f0; font-size: 1.05em; margin: 10px 0;">• <b>Usuario principal:</b> {datos_cuenta.usuario}</p>
+                    <p style="color: #e2e8f0; font-size: 1.05em; margin: 10px 0;">• <b>ID Empresarial:</b> {datos_cuenta.empresa_id}</p>
+                    <p style="color: #e2e8f0; font-size: 1.05em; margin: 10px 0;">• <b>Licencia Activa:</b> {datos_cuenta.plan}</p>
+                    <p style="color: #e2e8f0; font-size: 1.05em; margin: 10px 0;">• <b>Días Restantes:</b> {dias_restantes} días</p>
+                </div>
+                """
             st.markdown(tarjeta_html, unsafe_allow_html=True)
         else:
             st.warning(

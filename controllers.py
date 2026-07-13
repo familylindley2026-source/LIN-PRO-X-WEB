@@ -18,6 +18,7 @@ from models import (
     GastoOperativo,
     Cliente,
     Asesor,
+    Suscriptor,
 )
 
 
@@ -776,7 +777,7 @@ class SistemaController:
                 "caja_actual": (caja.monto_apertura + caja.ingresos - caja.egresos)
                 if caja
                 else 0.0,
-                "ventas_hoy": values_hoy,
+                "ventas_hoy": ventas_hoy,  # <--- EL ERROR ESTABA AQUÍ (Decía values_hoy)
                 "total_clientes": total_clientes,
             }
 
@@ -804,5 +805,39 @@ class SistemaController:
         except Exception as e:
             db.rollback()
             return False, f"Error en la base de datos: {str(e)}"
+        finally:
+            db.close()
+
+    def verificar_acceso(self, usuario_ingresado, clave_ingresada):
+        """
+        Verifica las credenciales del usuario usando SQLAlchemy.
+        Retorna (True, datos_del_usuario) si es correcto, o (False, None) si falla.
+        """
+        db = self.SessionFactory()
+        try:
+            # Busca en el modelo Suscriptor donde coincidan usuario y password
+            usuario_db = (
+                db.query(Suscriptor)
+                .filter(
+                    Suscriptor.usuario == usuario_ingresado,
+                    Suscriptor.password == clave_ingresada,
+                )
+                .first()
+            )
+
+            # Si encuentra al usuario, extrae sus datos
+            if usuario_db:
+                datos_usuario = {
+                    "usuario": usuario_db.usuario,
+                    "empresa_id": usuario_db.empresa_id,
+                    "plan": usuario_db.plan,
+                }
+                return True, datos_usuario
+            else:
+                return False, None
+
+        except Exception as e:
+            print(f"Error en el login: {e}")
+            return False, None
         finally:
             db.close()
