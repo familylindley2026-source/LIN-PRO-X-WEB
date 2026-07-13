@@ -18,6 +18,10 @@ if "controller" not in st.session_state:
     st.session_state.controller = SistemaController(SessionLocal)
 controller = st.session_state.controller
 
+# 🌟 ESTA ES LA LÍNEA MÁGICA QUE DEBES AGREGAR:
+if st.session_state.get("autenticado", False):
+    controller.empresa_id = st.session_state["empresa_id"]
+
 
 # ---------------------------------------------------------
 # 4. INICIALIZACIÓN DE LA MEMORIA DE SESIÓN
@@ -887,7 +891,7 @@ elif menu_seleccionado == "📦 Entradas (Compras)":
             else:
                 st.warning("Por favor, selecciona una compra válida de la lista.")
 
-    
+
 # 4. PRODUCCIÓN
 elif menu_seleccionado == "🧪 Producción y Fórmulas":
     st.title("🧪 Planta y Laboratorio")
