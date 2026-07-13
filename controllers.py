@@ -841,3 +841,90 @@ class SistemaController:
             return False, None
         finally:
             db.close()
+
+    def eliminar_pedido_erroneo(self, numero_orden, empresa_id):
+        """
+        Elimina por completo una venta y sus detalles de la base de datos.
+        """
+        db = self.SessionFactory()
+        try:
+            # 1. Buscar la factura en la base de datos de esa empresa
+            venta = (
+                db.query(Venta)
+                .filter(
+                    Venta.numero_orden == numero_orden, Venta.empresa_id == empresa_id
+                )
+                .first()
+            )
+
+            if not venta:
+                return False, "❌ El pedido no existe o pertenece a otra empresa."
+
+            # 2. Eliminar primero los detalles (los productos de esa factura)
+            db.query(VentaDetalle).filter(VentaDetalle.venta_id == venta.id).delete()
+
+            # 3. Eliminar la factura principal
+            db.delete(venta)
+
+            db.commit()
+            return True, f"✅ Pedido {numero_orden} eliminado permanentemente."
+        except Exception as e:
+            db.rollback()
+            return False, f"Error al eliminar: {str(e)}"
+        finally:
+            db.close()
+
+    def obtener_lista_compras(self):
+        """Devuelve una lista de todos los motivos de compras registrados en el Kardex."""
+        db = self.SessionFactory()
+        try:
+            # Busca todos los movimientos que empiecen con la palabra "Compra"
+            movimientos = (
+                db.query(KardexMovimiento.motivo)
+                .filter(KardexMovimiento.motivo.like("Compra%"))
+                .distinct()
+                .all()
+            )
+
+            # Devuelve una lista limpia de textos
+            return [m[0] for m in movimientos]
+        finally:
+            db.close()
+
+    def eliminar_pedido_erroneo(self, numero_orden, empresa_id):
+        """
+        Elimina por completo una venta y sus detalles de la base de datos.
+        """
+        db = self.SessionFactory()
+        try:
+            # CORRECCIÓN: Se usa 'factura_nro' que es el nombre real de tu columna
+            venta = db.query(Venta).filter(Venta.factura_nro == numero_orden).first()
+
+            if not venta:
+                return False, "❌ El pedido no existe o ya fue eliminado."
+
+            # 1. Recuperar el stock de los productos vendidos antes de borrar el detalle
+            detalles = (
+                db.query(VentaDetalle).filter(VentaDetalle.venta_id == venta.id).all()
+            )
+            for det in detalles:
+                prod = db.query(ProductoTerminado).filter_by(id=det.producto_id).first()
+                if prod:
+                    prod.stock_actual += (
+                        det.cantidad
+                    )  # Devolvemos el producto al inventario
+                db.delete(det)  # Borramos el detalle
+
+            # 2. Eliminar la factura principal
+            db.delete(venta)
+
+            db.commit()
+            return (
+                True,
+                f"✅ Pedido {numero_orden} eliminado permanentemente y stock recuperado.",
+            )
+        except Exception as e:
+            db.rollback()
+            return False, f"Error al eliminar: {str(e)}"
+        finally:
+            db.close()

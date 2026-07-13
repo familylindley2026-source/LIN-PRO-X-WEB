@@ -1,20 +1,22 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import urllib.parse
 import plotly.express as px
+import extra_streamlit_components as stx  # <-- LIBRERÍA DE COOKIES
 
 # 1. CONFIGURACIÓN DE PÁGINA (Debe ir antes de cualquier otro comando de Streamlit)
 st.set_page_config(page_title="LIN-PRO X WEB", page_icon="🏭", layout="wide")
 
 # 2. IMPORTACIONES DE TU ARQUITECTURA
-from database import (
-    SessionLocal,
-)  # Usamos SessionLocal ya que vi que lo tenías en tu código original
+from database import SessionLocal
 from controllers import SistemaController
 
 # 3. INICIALIZAR EL CONTROLADOR CON LA BASE DE DATOS
-controller = SistemaController(SessionLocal)
+if "controller" not in st.session_state:
+    st.session_state.controller = SistemaController(SessionLocal)
+controller = st.session_state.controller
+
 
 # ---------------------------------------------------------
 # 4. INICIALIZACIÓN DE LA MEMORIA DE SESIÓN
@@ -60,28 +62,24 @@ if not st.session_state["autenticado"]:
                         st.session_state["autenticado"] = True
                         st.session_state["usuario"] = datos_usuario["usuario"]
                         st.session_state["empresa_id"] = datos_usuario["empresa_id"]
+
                         st.success("¡Acceso exitoso! Cargando panel...")
                         st.rerun()
                     else:
                         st.error("❌ Usuario o contraseña incorrectos.")
 
-    # 🛑 MURO DE CONTENCIÓN: Si no está autenticado, la lectura del código muere aquí.
+    # 🛑 MURO DE CONTENCIÓN: Si no está autenticado, la lectura muere aquí.
     st.stop()
 
 # =====================================================================
-# AQUÍ DEBAJO DEBE CONTINUAR TU CÓDIGO ACTUAL (Tus st.sidebar.radio, tus módulos, etc.)
+# SISTEMA PRINCIPAL (Solo se ejecuta si pasó el login)
 # =====================================================================
-
 
 # ==========================================
 # ⚙️ CONFIGURACIÓN GLOBAL Y ESTILOS
 # ==========================================
 NOMBRE_NEGOCIO = "IVONNE BERNATE PRODUCTOS CAPILARES"
 NUMERO_WHATSAPP = "573016884590"
-
-if "controller" not in st.session_state:
-    st.session_state.controller = SistemaController(SessionLocal)
-controller = st.session_state.controller
 
 st.markdown(
     """
@@ -117,7 +115,8 @@ def renderizar_tabla_estilizada(datos, col_izquierda):
 # ==========================================
 # 🗂️ BARRA DE NAVEGACIÓN LATERAL
 # ==========================================
-st.sidebar.markdown("### 👤 Bienvenido: IVONNE BERNATE")
+usuario_logeado = st.session_state.get("usuario", "Usuario")
+st.sidebar.markdown(f"### 👤 Bienvenido: {usuario_logeado}")
 st.sidebar.markdown("⭐ **Plan Activo:** Plan Mensual (Distribuidores)")
 st.sidebar.success("⏳ **Tiempo restante: 13 días**")
 
@@ -131,23 +130,21 @@ with st.sidebar.expander("🚀 PLANES DE SUSCRIPCIÓN LIN-PRO X WEB"):
     st.markdown(f"[🟢 Renovar vía WhatsApp](https://wa.me/{NUMERO_WHATSAPP})")
 
 st.sidebar.markdown("---")
+
+# CERRAR SESIÓN
+if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, type="primary"):
+    st.session_state.clear()
+    st.rerun()
+
+st.sidebar.markdown("---")
+
 st.sidebar.markdown(
     "<div class='titulo-sidebar'>LIN - PRO X WEB</div>", unsafe_allow_html=True
 )
 st.sidebar.markdown(
-    "<div class='subtitulo-sidebar'>Ivonne Bernate | Costos & Planta</div>",
+    f"<div class='subtitulo-sidebar'>{usuario_logeado} | Costos & Planta</div>",
     unsafe_allow_html=True,
 )
-
-# ---------------------------------------------------------
-# 3. SISTEMA PRINCIPAL (Solo se ejecuta si pasó el muro de arriba)
-# ---------------------------------------------------------
-# CERRAR SESIÓN (Se dibujará en la parte superior del menú lateral)
-if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, type="primary"):
-    st.session_state.clear()  # Borra toda la memoria
-    st.rerun()  # Refresca la página para volver al Login
-
-st.sidebar.write("---")
 
 menu_opciones = [
     "📊 Dashboard",
@@ -337,6 +334,7 @@ if menu_seleccionado == "📊 Dashboard":
             else:
                 st.info("No hay capital invertido en insumos.")
 
+
 # 2. PUNTO DE VENTA
 elif menu_seleccionado == "🛒 Punto de Venta":
     st.title("🛒 Terminal de Ventas POS")
@@ -462,14 +460,24 @@ elif menu_seleccionado == "🛒 Punto de Venta":
 elif menu_seleccionado == "📦 Entradas (Compras)":
     st.title("📦 Registro de Pedidos y Entradas")
 
+    # --- AUTO-NUMERACIÓN ---
+    # Llamamos a tu función original para obtener el próximo número IB-XXX
+    try:
+        nro_sugerido = controller.generar_nro_orden_compra()
+    except:
+        nro_sugerido = "IB-001"
+    # -----------------------
+
     col_prov, col_doc, col_comp = st.columns(3)
     proveedores = controller.obtener_proveedores()
+
     with col_prov:
         proveedor_sel = st.selectbox(
             "Proveedor", [p.nombre for p in proveedores] if proveedores else ["S/N"]
         )
     with col_doc:
-        nro_factura = st.text_input("N° Factura / Orden")
+        # Aquí inyectamos el número sugerido por defecto
+        nro_factura = st.text_input("N° Factura / Orden", value=nro_sugerido)
     with col_comp:
         comprador_sel = st.selectbox("Comprador", ["Ivonne Bernate", "Admin", "Otro"])
 
@@ -542,6 +550,72 @@ elif menu_seleccionado == "📦 Entradas (Compras)":
                     st.session_state.carrito_compras = []
                 else:
                     st.error(msg)
+
+    # ==========================================
+    # 🗑️ ZONA DE ELIMINACIÓN DE COMPRAS (Desplegable)
+    # ==========================================
+    st.write("---")
+    st.markdown("### 🗑️ Zona de Seguridad: Eliminar Compra")
+    st.info(
+        "Si registraste una compra por error, selecciónala de la lista. Se descontará el stock y se borrará del sistema."
+    )
+
+    # Obtenemos la lista de compras registradas
+    lista_compras_db = controller.obtener_lista_compras()
+
+    with st.form("form_eliminar_compra"):
+        if lista_compras_db:
+            compra_a_eliminar = st.selectbox(
+                "Selecciona la Orden / Factura de Compra",
+                options=["Seleccione una compra..."] + lista_compras_db,
+            )
+        else:
+            compra_a_eliminar = "Seleccione una compra..."
+            st.warning("No hay compras registradas en el sistema todavía.")
+
+        submit_eliminar = st.form_submit_button(
+            "Eliminar Compra Permanentemente", type="primary"
+        )
+    #Zona de Seguridad: Eliminar Compra
+        if submit_eliminar:
+            if compra_a_eliminar != "Seleccione una compra...":
+                exito, msg = controller.eliminar_compra_erronea(compra_a_eliminar)
+                if exito:
+                    st.success(msg)
+                    st.rerun()  # Refresca para limpiar la lista
+                else:
+                    st.error(msg)
+            else:
+                st.warning("Por favor, selecciona una compra válida de la lista.")
+
+
+    #Zona de Seguridad: Eliminar Ventas
+    st.write("---")
+    st.markdown("### 🗑️ Zona de Seguridad: Eliminar Pedido")
+    st.info(
+        "Si registraste una venta por error, ingresa el número de orden para borrarla del sistema."
+    )
+
+    with st.form("form_eliminar_pedido"):
+        orden_a_eliminar = st.text_input("N° Factura / Orden ()")
+
+        # Botón rojo para acciones destructivas
+        submit_eliminar = st.form_submit_button(
+            "Eliminar Pedido Permanentemente", type="primary"
+        )
+
+        if submit_eliminar:
+            if orden_a_eliminar:
+                exito, msg = controller.eliminar_pedido_erroneo(
+                    orden_a_eliminar, st.session_state["empresa_id"]
+                )
+                if exito:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+            else:
+                st.warning("Escribe un número de orden primero.")
+
 
 # 4. PRODUCCIÓN
 elif menu_seleccionado == "🧪 Producción y Fórmulas":
@@ -1080,14 +1154,6 @@ elif menu_seleccionado == "🔒 Seguridad y Cuenta":
     st.title("🔒 Configuración de Seguridad - LIN - PRO X")
     st.markdown("Administra las credenciales de acceso a tu panel empresarial.")
     st.write("---")
-
-    # --- SIMULACIÓN TEMPORAL DE SESIÓN --- (¡BÓRRALO!)
-    if "usuario" not in st.session_state:
-        st.session_state["usuario"] = "IVONNE BERNATE"
-    if "empresa_id" not in st.session_state:
-        st.session_state["empresa_id"] = "Fuxion_Lindley"
-    # -------------------------------------
-    # -------------------------------------
 
     # Tomamos el usuario real de la memoria del sistema
     usuario_actual = st.session_state["usuario"]
