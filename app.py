@@ -1,4 +1,5 @@
 import streamlit as st
+import altair as alt
 import pandas as pd
 from datetime import datetime, timedelta
 import urllib.parse
@@ -268,6 +269,26 @@ if menu_seleccionado == "📊 Dashboard":
         capital_total_bodega = capital_insumos + capital_pt
 
         st.markdown("---")
+
+        # 🎨 INYECCIÓN CSS: Forzar letras y flechas blancas en los KPIs nativos
+        st.markdown(
+            """
+        <style>
+        [data-testid="stMetricDelta"] {
+            color: #ffffff !important;
+        }
+        [data-testid="stMetricDelta"] > div {
+            color: #ffffff !important;
+            font-weight: 600 !important;
+        }
+        [data-testid="stMetricDelta"] svg {
+            fill: #ffffff !important; /* Flecha blanca */
+        }
+        </style>
+        """,
+            unsafe_allow_html=True,
+        )
+
         m1, m2, m3, m4 = st.columns(4)
         m1.metric(
             "💰 Ventas (Periodo)",
@@ -279,38 +300,50 @@ if menu_seleccionado == "📊 Dashboard":
             f"$ {int(ticket_promedio):,.0f}",
             "Eficiencia de venta",
         )
-        # Formateamos los números (opcionalmente cambiando comas por puntos para formato latino)
+
+        # Formateamos los números con puntos (formato latino)
         str_bodega = f"$ {int(capital_total_bodega):,.0f}".replace(",", ".")
         str_insumos = f"$ {int(capital_insumos):,.0f}".replace(",", ".")
         str_pt = f"$ {int(capital_pt):,.0f}".replace(",", ".")
 
-        # 1. Pintamos el valor total principal sin el texto verde por defecto
+        # Métrica principal sin el delta por defecto
         m3.metric("📦 Valor en Bodega", str_bodega)
 
-        # 2. Inyectamos el desglose en dos líneas justo debajo simulando el diseño
+        # Etiqueta HTML con texto blanco y fondo verde resaltado
         m3.markdown(
             f"""
-        <div style="font-size: 0.85rem; color: #a0aec0; margin-top: -15px; line-height: 1.4;">
-            Insumos = {str_insumos} <br>
-            Producto Terminado = {str_pt}
+        <div style="
+            color: #ffffff; 
+            background-color: rgba(9, 171, 59, 0.35); 
+            padding: 4px 10px; 
+            border-radius: 6px; 
+            font-size: 0.85rem; 
+            margin-top: -15px; 
+            display: inline-block; 
+            font-weight: 600;
+            line-height: 1.4;
+        ">
+            ↑ Insumo = {str_insumos} <br>
+            ↑ Producto Terminado = {str_pt}
         </div>
         """,
             unsafe_allow_html=True,
         )
+
         m4.metric(
             "🚨 Alertas de Stock",
             f"{len([p for p in insumos if p.stock_actual <= 10])}",
             "Insumos Críticos",
         )
         st.markdown("---")
-
+       
         # =========================================================
         # 1. GRÁFICO SUPERIOR: FULL-WIDTH (Comportamiento de Ventas)
         # =========================================================
         st.markdown("#### 📈 Comportamiento de Ventas en el Tiempo")
         if not df_filtrado.empty:
             df_tiempo = df_filtrado.groupby("Día")["Total"].sum().reset_index()
-            # Esta línea evita que salgan horas raras en el eje X, forzando a que sea texto puro
+            # Convertimos a texto
             df_tiempo["Día"] = df_tiempo["Día"].astype(str)
 
             # Usamos px.area para que se vea lleno por debajo como tu referencia
@@ -322,6 +355,10 @@ if menu_seleccionado == "📊 Dashboard":
                 markers=True,
                 color_discrete_sequence=["#00b4d8"],
             )
+
+            # 🛑 LA MAGIA ESTÁ AQUÍ: Obligamos a Plotly a tratar el eje X como texto puro (categoría)
+            fig_line.update_xaxes(type="category")
+
             # Agregamos las etiquetas de precio a cada punto
             fig_line.update_traces(
                 mode="lines+markers+text",
@@ -439,33 +476,117 @@ if menu_seleccionado == "📊 Dashboard":
                 fig_pie.update_layout(margin=dict(l=20, r=20, t=30, b=20), height=350)
                 st.plotly_chart(fig_pie, use_container_width=True)
 
-            # GRÁFICO 5: DISTRIBUCIÓN DEL CAPITAL EN BODEGA
-            st.markdown("#### ⚖️ Estructura del Capital en Inventario")
-            df_inv = pd.DataFrame(
-                [
-                    {"Categoría": "Materia Prima (Insumos)", "Valor": capital_insumos},
-                    {"Categoría": "Producto Terminado", "Valor": capital_pt},
-                ]
-            )
-            fig_inv_bar = px.bar(
-                df_inv,
-                x="Categoría",
-                y="Valor",
-                text="Valor",
-                color="Categoría",
-                template="plotly_dark",
-                color_discrete_map={
-                    "Materia Prima (Insumos)": "#f39c12",
-                    "Producto Terminado": "#8e44ad",
-                },
-            )
-            fig_inv_bar.update_traces(
-                texttemplate="$ %{text:,.0f}", textposition="outside"
-            )
-            fig_inv_bar.update_layout(
-                margin=dict(l=20, r=20, t=30, b=20), height=350, showlegend=False
-            )
-            st.plotly_chart(fig_inv_bar, use_container_width=True)
+            # GRÁFICO 5: RENDIMIENTO DEUDA VS ABONOS
+            st.markdown("#### ⚖️ Rendimiento: Deuda vs Abonos")
+
+            # Consultamos la cartera real en la base de datos
+            deudas = controller.obtener_cartera()
+            datos_cartera = []
+
+            if deudas:
+                for d in deudas:
+                    datos_cartera.append(
+                        {
+                            "Cliente": d.cliente.nombre,
+                            "Factura": d.factura_nro,
+                            "Deuda Original": float(d.total_neto),
+                            "Abono Aplicado": float(d.total_neto - d.saldo_pendiente),
+                            "Saldo Pendiente": float(d.saldo_pendiente),
+                            "Etiqueta": f"{d.cliente.nombre[:15]}... ({d.factura_nro})",
+                        }
+                    )
+
+            df_cartera_facturas = pd.DataFrame(datos_cartera)
+
+            if not df_cartera_facturas.empty:
+                data_plot = df_cartera_facturas.melt(
+                    id_vars=["Etiqueta", "Saldo Pendiente", "Cliente", "Factura"],
+                    value_vars=["Deuda Original", "Abono Aplicado"],
+                    var_name="Tipo",
+                    value_name="Monto",
+                )
+                chart = (
+                    alt.Chart(data_plot)
+                    .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+                    .encode(
+                        x=alt.X(
+                            "Etiqueta:N",
+                            title="Facturas Activas por Cliente",
+                            axis=alt.Axis(labelAngle=-45),
+                        ),
+                        y=alt.Y("Monto:Q", stack=None, title="Monto ($)"),
+                        color=alt.Color(
+                            "Tipo:N",
+                            scale=alt.Scale(
+                                domain=["Deuda Original", "Abono Aplicado"],
+                                range=["#ff4d4d", "#00ADEF"],
+                            ),
+                        ),
+                        order=alt.Order("Tipo:N", sort="descending"),
+                        tooltip=[
+                            "Cliente",
+                            "Factura",
+                            "Tipo",
+                            alt.Tooltip("Monto:Q", format="$,.0f"),
+                            alt.Tooltip("Saldo Pendiente:Q", format="$,.0f"),
+                        ],
+                    )
+                )
+                st.altair_chart(chart, use_container_width=True)
+
+                # Tabla de resumen debajo del gráfico
+                st.dataframe(
+                    df_cartera_facturas[
+                        [
+                            "Cliente",
+                            "Factura",
+                            "Deuda Original",
+                            "Abono Aplicado",
+                            "Saldo Pendiente",
+                        ]
+                    ].style.format(
+                        {
+                            "Deuda Original": "${:,.0f}",
+                            "Abono Aplicado": "${:,.0f}",
+                            "Saldo Pendiente": "${:,.0f}",
+                        }
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                # Gráfico vacío decorativo si no hay deudas
+                data_vacia = pd.DataFrame(
+                    [{"Etiqueta": "-", "Monto": 0.0, "Tipo": "Deuda Original"}]
+                )
+                chart_vacio = (
+                    alt.Chart(data_vacia)
+                    .mark_bar()
+                    .encode(
+                        x=alt.X(
+                            "Etiqueta:N",
+                            title="Facturas Pendientes",
+                            axis=alt.Axis(labelAngle=0),
+                        ),
+                        y=alt.Y(
+                            "Monto:Q",
+                            title="Monto ($)",
+                            scale=alt.Scale(domain=[0, 100000]),
+                        ),
+                        color=alt.Color(
+                            "Tipo:N",
+                            title="Tipo",
+                            scale=alt.Scale(
+                                domain=["Deuda Original", "Abono Aplicado"],
+                                range=["#ff4d4d", "#00ADEF"],
+                            ),
+                        ),
+                    )
+                )
+                st.altair_chart(chart_vacio, use_container_width=True)
+                st.success(
+                    "🎉 ¡Excelente! Todas las facturas a crédito están pagadas. Cartera en cero."
+                )
 
 
 # 2. PUNTO DE VENTA
