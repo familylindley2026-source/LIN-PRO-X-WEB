@@ -279,10 +279,23 @@ if menu_seleccionado == "📊 Dashboard":
             f"$ {int(ticket_promedio):,.0f}",
             "Eficiencia de venta",
         )
-        m3.metric(
-            "📦 Valor en Bodega",
-            f"$ {int(capital_total_bodega):,.0f}",
-            "Capital Inmovilizado",
+        # Formateamos los números (opcionalmente cambiando comas por puntos para formato latino)
+        str_bodega = f"$ {int(capital_total_bodega):,.0f}".replace(",", ".")
+        str_insumos = f"$ {int(capital_insumos):,.0f}".replace(",", ".")
+        str_pt = f"$ {int(capital_pt):,.0f}".replace(",", ".")
+
+        # 1. Pintamos el valor total principal sin el texto verde por defecto
+        m3.metric("📦 Valor en Bodega", str_bodega)
+
+        # 2. Inyectamos el desglose en dos líneas justo debajo simulando el diseño
+        m3.markdown(
+            f"""
+        <div style="font-size: 0.85rem; color: #a0aec0; margin-top: -15px; line-height: 1.4;">
+            Insumos = {str_insumos} <br>
+            Producto Terminado = {str_pt}
+        </div>
+        """,
+            unsafe_allow_html=True,
         )
         m4.metric(
             "🚨 Alertas de Stock",
