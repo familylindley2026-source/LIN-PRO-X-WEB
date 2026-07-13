@@ -24,9 +24,7 @@ from models import (
 class SistemaController:
     def __init__(self, session_factory):
         self.SessionFactory = session_factory
-        self.empresa_id = (
-            None  # Muro de contención. Se asignará dinámicamente al loguearse
-        )
+        self.empresa_id = None
 
     def generar_nro_orden_compra(self):
         with self.SessionFactory() as db:
@@ -159,12 +157,9 @@ class SistemaController:
                     )
                     if insumo:
                         if insumo.stock_actual > 0:
-                            costo_total_actual = (
-                                insumo.stock_actual * insumo.costo_promedio
-                            )
-                            costo_nueva_compra = item["precio"]
                             insumo.costo_promedio = (
-                                costo_total_actual + costo_nueva_compra
+                                (insumo.stock_actual * insumo.costo_promedio)
+                                + item["precio"]
                             ) / (insumo.stock_actual + item["cant"])
                         else:
                             insumo.costo_promedio = item["precio"] / item["cant"]
@@ -179,7 +174,6 @@ class SistemaController:
                                 empresa_id=self.empresa_id,
                             )
                         )
-
                 elif item["tipo"] == "Productos Terminados":
                     prod = (
                         db.query(ProductoTerminado)
@@ -188,10 +182,9 @@ class SistemaController:
                     )
                     if prod:
                         if prod.stock_actual > 0:
-                            costo_total_actual = prod.stock_actual * prod.costo_unitario
-                            costo_nueva_compra = item["precio"]
                             prod.costo_unitario = (
-                                costo_total_actual + costo_nueva_compra
+                                (prod.stock_actual * prod.costo_unitario)
+                                + item["precio"]
                             ) / (prod.stock_actual + item["cant"])
                         else:
                             prod.costo_unitario = item["precio"] / item["cant"]
@@ -207,14 +200,11 @@ class SistemaController:
                             )
                         )
             db.commit()
-
             total = sum(i["precio"] for i in carrito)
-            ticket = f"🏢 *LINDLEY CLOUD OS*\n📦 *COMPROBANTE DE INGRESO*\n----------------------------------------\n"
-            ticket += f"🧾 *Orden N°:* {nro_orden}\n📅 *Fecha:* {datetime.now().strftime('%Y-%m-%d %H:%M')}\n🏭 *Proveedor:* {proveedor_nombre}\n👤 *Comprador/Recibe:* {comprador}\n----------------------------------------\n"
+            ticket = f"🏢 *LINDLEY CLOUD OS*\n📦 *COMPROBANTE DE INGRESO*\n----------------------------------------\n🧾 *Orden N°:* {nro_orden}\n📅 *Fecha:* {datetime.now().strftime('%Y-%m-%d %H:%M')}\n🏭 *Proveedor:* {proveedor_nombre}\n👤 *Comprador/Recibe:* {comprador}\n----------------------------------------\n"
             for item in carrito:
                 ticket += f"▪ {item['cant']:,.0f}x {item['nombre']}\n   Subtotal: $ {item['precio']:,.0f}\n"
             ticket += f"----------------------------------------\n💰 *TOTAL INVERSIÓN: $ {total:,.0f}*\n"
-
             return True, "Compra registrada con éxito.", ticket
         except Exception as e:
             db.rollback()
@@ -247,7 +237,6 @@ class SistemaController:
         db = self.SessionFactory()
         try:
             nombre_limpio = nombre.strip().upper()
-
             existe_pt = (
                 db.query(ProductoTerminado)
                 .filter_by(
@@ -258,10 +247,9 @@ class SistemaController:
                 .first()
             )
             if not existe_pt:
-                codigo_nuevo = f"PT-{datetime.now().strftime('%S%f')[:5]}"
                 db.add(
                     ProductoTerminado(
-                        codigo=codigo_nuevo,
+                        codigo=f"PT-{datetime.now().strftime('%S%f')[:5]}",
                         nombre=nombre_limpio,
                         presentacion=presentacion,
                         precio_venta=precio,
@@ -314,7 +302,7 @@ class SistemaController:
                 return False, "Producto no encontrado."
             db.delete(prod_pt)
             db.commit()
-            return True, "Producto eliminado completamente de Supabase."
+            return True, "Producto eliminado completamente."
         except Exception as e:
             db.rollback()
             return False, str(e)
@@ -395,18 +383,11 @@ class SistemaController:
                 .first()
             )
             if not receta:
-                return (
-                    False,
-                    f"La fórmula '{receta_nombre}' no existe en la base de datos.",
-                )
-            if receta.volumen_lote_base <= 0:
-                return False, "El volumen base de la fórmula es inválido."
+                return False, f"La fórmula '{receta_nombre}' no existe."
             factor = float(volumen_preparar) / float(receta.volumen_lote_base)
             total_botellas = sum(envases.values())
-
             faltantes = []
             consumos_calculados = {}
-
             for det in receta.detalles:
                 if det.insumo.unidad_medida.upper() in [
                     "UND",
@@ -417,26 +398,21 @@ class SistemaController:
                     is_specific = False
                     consumo_und = 0
                     for tam_key, cant_val in envases.items():
-                        tam_num = tam_key.replace("ml", "")
-                        if re.search(rf"\b{tam_num}\b", det.insumo.nombre):
+                        if re.search(
+                            rf"\b{tam_key.replace('ml', '')}\b", det.insumo.nombre
+                        ):
                             consumo_und += cant_val
                             is_specific = True
                     consumo = consumo_und if is_specific else total_botellas
                 else:
                     consumo = det.cantidad_requerida * factor
-
                 consumos_calculados[det.id] = consumo
                 if det.insumo.stock_actual < consumo:
-                    falta = consumo - det.insumo.stock_actual
                     faltantes.append(
-                        f"- {det.insumo.nombre}: Faltan {int(falta)} UND"
-                        if det.insumo.unidad_medida.upper() in ["UND", "UNIDAD"]
-                        else f"- {det.insumo.nombre}: Faltan {falta:.2f} {det.insumo.unidad_medida}"
+                        f"- {det.insumo.nombre}: Faltan {consumo - det.insumo.stock_actual:.1f} {det.insumo.unidad_medida}"
                     )
-
             if faltantes:
                 return False, "Stock insuficiente:\n\n" + "\n".join(faltantes)
-
             for det in receta.detalles:
                 det.insumo.stock_actual -= consumos_calculados[det.id]
             nombre_base = (
@@ -444,7 +420,6 @@ class SistemaController:
                 .replace("LOTE BASE - ", "")
                 .strip()
             )
-
             for tam, cant in envases.items():
                 if cant > 0:
                     prod = (
@@ -479,7 +454,7 @@ class SistemaController:
                         )
                     )
             db.commit()
-            return True, "¡Éxito! Lote procesado y stock actualizado."
+            return True, "Lote procesado y stock actualizado."
         except Exception as e:
             db.rollback()
             return False, f"Error interno: {str(e)}"
@@ -517,21 +492,13 @@ class SistemaController:
             return (
                 True,
                 "Movimiento registrado.",
-                self._generar_ticket(
-                    involucrado,
-                    motivo,
-                    cantidad,
-                    f"{prod.nombre} ({prod.presentacion})",
-                ),
+                f"\n📦 LINDLEY CLOUD OS\nSOPORTE: {datetime.now().strftime('%Y-%m-%d %H:%M')}\nOPERACIÓN: {operacion}\nCANT: {cantidad} | PROD: {prod.nombre}\n",
             )
         except Exception as e:
             db.rollback()
             return False, str(e), ""
         finally:
             db.close()
-
-    def _generar_ticket(self, involucrado, operacion, cant, producto):
-        return f"\n📦 LINDLEY CLOUD OS\nSOPORTE: {datetime.now().strftime('%Y-%m-%d %H:%M')}\nOPERACIÓN: {operacion}\nCANT: {cant} | PROD: {producto}\n"
 
     def obtener_auditoria_kardex(self):
         with self.SessionFactory() as db:
@@ -824,14 +791,8 @@ class SistemaController:
 
             ticket = f"✨ *IVONNE BERNATE PRODUCTOS CAPILARES*\n🧾 *FACTURA N°:* {nro}\n📅 *Fecha:* {datetime.now().strftime('%Y-%m-%d %H:%M')}\n👤 *Cliente:* {nombre_cliente}\n💼 *Atiende:* {vendedor}\n💳 *Medio de Pago:* {medio_pago}\n----------------------------------------\n"
             for item in carrito:
-                cant = int(item["cant"])
-                prec = int(item["precio"])
-                subt = int(item["subtotal"])
-                ticket += f"▪ {cant}x *{item['nombre']}*\n   $ {prec:,.0f}  =>  $ {subt:,.0f}\n"
-
-            total_formateado = int(total_neto)
-            ticket += f"----------------------------------------\n💰 *TOTAL A PAGAR: $ {total_formateado:,.0f}*\n"
-
+                ticket += f"▪ {int(item['cant'])}x *{item['nombre']}*\n   $ {int(item['precio']):,.0f}  =>  $ {int(item['subtotal']):,.0f}\n"
+            ticket += f"----------------------------------------\n💰 *TOTAL A PAGAR: $ {int(total_neto):,.0f}*\n"
             return True, f"Venta {nro} procesada.", ticket
         except Exception as e:
             db.rollback()
@@ -952,23 +913,6 @@ class SistemaController:
         with self.SessionFactory() as db:
             return db.query(Suscriptor).filter(Suscriptor.usuario == usuario).first()
 
-    def cambiar_password_suscriptor(self, usuario, password_actual, nueva_password):
-        db = self.SessionFactory()
-        try:
-            sub = db.query(Suscriptor).filter(Suscriptor.usuario == usuario).first()
-            if not sub:
-                return False, "Usuario no encontrado en la base de datos."
-            if sub.password != password_actual:
-                return False, "La contraseña actual es incorrecta."
-            sub.password = nueva_password
-            db.commit()
-            return True, "¡Contraseña actualizada exitosamente!"
-        except Exception as e:
-            db.rollback()
-            return False, f"Error en la base de datos: {str(e)}"
-        finally:
-            db.close()
-
     def verificar_acceso(self, usuario_ingresado, clave_ingresada):
         db = self.SessionFactory()
         try:
@@ -981,16 +925,11 @@ class SistemaController:
                 .first()
             )
             if usuario_db:
-                datos_usuario = {
+                return True, {
                     "usuario": usuario_db.usuario,
                     "empresa_id": usuario_db.empresa_id,
                     "plan": usuario_db.plan,
                 }
-                return True, datos_usuario
-            else:
-                return False, None
-        except Exception as e:
-            print(f"Error en el login: {e}")
             return False, None
         finally:
             db.close()
@@ -1007,8 +946,7 @@ class SistemaController:
                 .first()
             )
             if not venta:
-                return False, "❌ El pedido no existe o ya fue eliminado."
-
+                return False, "El pedido no existe."
             detalles = (
                 db.query(VentaDetalle)
                 .filter(
@@ -1026,16 +964,15 @@ class SistemaController:
                 if prod:
                     prod.stock_actual += det.cantidad
                 db.delete(det)
-
             db.delete(venta)
             db.commit()
             return (
                 True,
-                f"✅ Pedido {numero_orden} eliminado permanentemente y stock recuperado.",
+                f"Pedido {numero_orden} eliminado permanentemente y stock recuperado.",
             )
         except Exception as e:
             db.rollback()
-            return False, f"Error al eliminar: {str(e)}"
+            return False, f"Error: {str(e)}"
         finally:
             db.close()
 
@@ -1067,8 +1004,7 @@ class SistemaController:
                 .all()
             )
             if not movs:
-                return False, "No se encontraron registros para esa compra."
-
+                return False, "No se encontraron registros."
             for m in movs:
                 if m.insumo_id:
                     ins = (
@@ -1087,15 +1023,11 @@ class SistemaController:
                     if prod:
                         prod.stock_actual -= m.cantidad
                 db.delete(m)
-
             db.commit()
-            return (
-                True,
-                f"✅ Compra '{motivo_compra}' eliminada y stock revertido correctamente.",
-            )
+            return True, f"Compra '{motivo_compra}' eliminada."
         except Exception as e:
             db.rollback()
-            return False, f"Error al eliminar compra: {str(e)}"
+            return False, f"Error: {str(e)}"
         finally:
             db.close()
 
@@ -1110,4 +1042,3 @@ class SistemaController:
             )
         finally:
             db.close()
-
