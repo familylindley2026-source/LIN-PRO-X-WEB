@@ -1,215 +1,1113 @@
 from datetime import datetime
-from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    Float,
-    DateTime,
-    Boolean,
-    ForeignKey,
-    Date,
-    func,
+import re
+from sqlalchemy import func
+from sqlalchemy.orm import joinedload
+
+from models import (
+    Insumo,
+    Proveedor,
+    ProductoTerminado,
+    Receta,
+    RecetaDetalle,
+    KardexMovimiento,
+    ControlCaja,
+    Venta,
+    VentaDetalle,
+    Abono,
+    GastoOperativo,
+    Cliente,
+    Asesor,
+    Suscriptor,
 )
-from sqlalchemy.orm import relationship
-from database import Base
 
 
-def get_local_time():
-    return datetime.now()
+class SistemaController:
+    def __init__(self, session_factory):
+        self.SessionFactory = session_factory
+        self.empresa_id = (
+            None  # Muro de contención. Se asignará dinámicamente al loguearse
+        )
 
+    def generar_nro_orden_compra(self):
+        with self.SessionFactory() as db:
+            ultimo = (
+                db.query(KardexMovimiento)
+                .filter(
+                    KardexMovimiento.empresa_id == self.empresa_id,
+                    KardexMovimiento.motivo.like("%#IB-%"),
+                )
+                .order_by(KardexMovimiento.id.desc())
+                .first()
+            )
+            if ultimo:
+                try:
+                    motivo = ultimo.motivo
+                    parte_num = motivo.split("#IB-")[1].split()[0]
+                    num = int("".join(filter(str.isdigit, parte_num)))
+                    return f"IB-{num + 1:03d}"
+                except:
+                    pass
+            return "IB-001"
 
-class Proveedor(Base):
-    __tablename__ = "proveedores"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    nit = Column(String(20), default="S/N", nullable=False)
-    nombre = Column(String(100), unique=True, nullable=False)
-    activo = Column(Boolean, default=True, nullable=False)
-    empresa_id = Column(String, index=True)
+    def obtener_insumos(self):
+        with self.SessionFactory() as db:
+            return (
+                db.query(Insumo)
+                .options(joinedload(Insumo.proveedor))
+                .filter(Insumo.empresa_id == self.empresa_id, Insumo.activo == True)
+                .order_by(Insumo.categoria, Insumo.nombre)
+                .all()
+            )
 
-    insumos = relationship("Insumo", back_populates="proveedor")
+    def obtener_proveedores(self):
+        with self.SessionFactory() as db:
+            return (
+                db.query(Proveedor)
+                .filter(
+                    Proveedor.empresa_id == self.empresa_id, Proveedor.activo == True
+                )
+                .order_by(Proveedor.nombre)
+                .all()
+            )
 
+    def guardar_o_actualizar_insumo(
+        self, id_insumo, nombre, categoria, unidad, costo, stock, nombre_prov
+    ):
+        db = self.SessionFactory()
+        try:
+            nombre_prov_limpio = str(nombre_prov).strip()
+            prov = (
+                db.query(Proveedor)
+                .filter_by(nombre=nombre_prov_limpio, empresa_id=self.empresa_id)
+                .first()
+            )
+            if not prov and nombre_prov_limpio != "S/N":
+                prov = Proveedor(
+                    nombre=nombre_prov_limpio,
+                    nit=f"SN-{datetime.now().strftime('%H%M%S')}",
+                    empresa_id=self.empresa_id,
+                )
+                db.add(prov)
+                db.flush()
+            prov_id = prov.id if prov else None
 
-class Insumo(Base):
-    __tablename__ = "insumos"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    codigo = Column(String(30), unique=True, nullable=False, index=True)
-    nombre = Column(String(100), nullable=False)
-    categoria = Column(String(50), nullable=False)
-    unidad_medida = Column(String(20), nullable=False)
-    stock_actual = Column(Float, default=0.0)
-    costo_promedio = Column(Float, default=0.0)
-    proveedor_id = Column(Integer, ForeignKey("proveedores.id"), nullable=True)
-    activo = Column(Boolean, default=True, nullable=False)
-    empresa_id = Column(String, index=True)
+            insumo = (
+                db.query(Insumo)
+                .filter_by(id=id_insumo, empresa_id=self.empresa_id)
+                .first()
+                if id_insumo
+                else db.query(Insumo)
+                .filter_by(nombre=nombre.strip(), empresa_id=self.empresa_id)
+                .first()
+            )
+            if insumo:
+                insumo.nombre = nombre.strip()
+                insumo.categoria = categoria
+                insumo.unidad_medida = unidad
+                insumo.costo_promedio = costo
+                insumo.stock_actual = stock
+                insumo.proveedor_id = prov_id
+            else:
+                db.add(
+                    Insumo(
+                        codigo=f"INS-{datetime.now().strftime('%S%f')[:4]}",
+                        nombre=nombre.strip(),
+                        categoria=categoria,
+                        unidad_medida=unidad,
+                        costo_promedio=costo,
+                        proveedor_id=prov_id,
+                        stock_actual=stock,
+                        empresa_id=self.empresa_id,
+                    )
+                )
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            return False
+        finally:
+            db.close()
 
-    proveedor = relationship("Proveedor", back_populates="insumos")
+    def eliminar_insumo(self, id_insumo):
+        db = self.SessionFactory()
+        try:
+            insumo = (
+                db.query(Insumo)
+                .filter_by(id=id_insumo, empresa_id=self.empresa_id)
+                .first()
+            )
+            if insumo:
+                db.delete(insumo)
+                db.commit()
+                return True
+            return False
+        except:
+            db.rollback()
+            return False
+        finally:
+            db.close()
 
+    def procesar_compra_mixta(self, proveedor_nombre, nro_orden, carrito, comprador):
+        db = self.SessionFactory()
+        try:
+            for item in carrito:
+                if item["tipo"] == "Insumos":
+                    insumo = (
+                        db.query(Insumo)
+                        .filter_by(id=item["id"], empresa_id=self.empresa_id)
+                        .first()
+                    )
+                    if insumo:
+                        if insumo.stock_actual > 0:
+                            costo_total_actual = (
+                                insumo.stock_actual * insumo.costo_promedio
+                            )
+                            costo_nueva_compra = item["precio"]
+                            insumo.costo_promedio = (
+                                costo_total_actual + costo_nueva_compra
+                            ) / (insumo.stock_actual + item["cant"])
+                        else:
+                            insumo.costo_promedio = item["precio"] / item["cant"]
+                        insumo.stock_actual += item["cant"]
+                        db.add(
+                            KardexMovimiento(
+                                insumo_id=insumo.id,
+                                operacion="Entrada",
+                                cantidad=item["cant"],
+                                motivo=f"Compra Orden #{nro_orden}",
+                                involucrado=proveedor_nombre,
+                                empresa_id=self.empresa_id,
+                            )
+                        )
 
-class CatalogoProducto(Base):
-    __tablename__ = "catalogo_productos"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    nombre = Column(String(100), nullable=False)
-    presentacion = Column(String(100))
-    precio_publico = Column(Float, default=0.0)
-    dias_cobertura = Column(Integer, default=30)
-    puntos_pv = Column(Integer, default=0)
-    empresa_id = Column(String, index=True)
+                elif item["tipo"] == "Productos Terminados":
+                    prod = (
+                        db.query(ProductoTerminado)
+                        .filter_by(id=item["id"], empresa_id=self.empresa_id)
+                        .first()
+                    )
+                    if prod:
+                        if prod.stock_actual > 0:
+                            costo_total_actual = prod.stock_actual * prod.costo_unitario
+                            costo_nueva_compra = item["precio"]
+                            prod.costo_unitario = (
+                                costo_total_actual + costo_nueva_compra
+                            ) / (prod.stock_actual + item["cant"])
+                        else:
+                            prod.costo_unitario = item["precio"] / item["cant"]
+                        prod.stock_actual += item["cant"]
+                        db.add(
+                            KardexMovimiento(
+                                producto_id=prod.id,
+                                operacion="Entrada",
+                                cantidad=item["cant"],
+                                motivo=f"Compra Lab/Terceros #{nro_orden}",
+                                involucrado=proveedor_nombre,
+                                empresa_id=self.empresa_id,
+                            )
+                        )
+            db.commit()
 
+            total = sum(i["precio"] for i in carrito)
+            ticket = f"🏢 *LINDLEY CLOUD OS*\n📦 *COMPROBANTE DE INGRESO*\n----------------------------------------\n"
+            ticket += f"🧾 *Orden N°:* {nro_orden}\n📅 *Fecha:* {datetime.now().strftime('%Y-%m-%d %H:%M')}\n🏭 *Proveedor:* {proveedor_nombre}\n👤 *Comprador/Recibe:* {comprador}\n----------------------------------------\n"
+            for item in carrito:
+                ticket += f"▪ {item['cant']:,.0f}x {item['nombre']}\n   Subtotal: $ {item['precio']:,.0f}\n"
+            ticket += f"----------------------------------------\n💰 *TOTAL INVERSIÓN: $ {total:,.0f}*\n"
 
-class ProductoTerminado(Base):
-    __tablename__ = "productos_terminados"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    codigo = Column(String(30), unique=True, nullable=False, index=True)
-    nombre = Column(String(100), nullable=False)
-    linea = Column(String(50), default="Capilar")
-    presentacion = Column(String(50), default="Genérico")
-    es_souvenir = Column(Boolean, default=False, nullable=False)
-    costo_unitario = Column(Float, default=0.0)
-    precio_venta = Column(Float, default=0.0)
-    stock_actual = Column(Integer, default=0)
-    dias_consumo = Column(Integer, default=30)
-    puntos_pv = Column(Integer, default=0)
-    activo = Column(Boolean, default=True, nullable=False)
-    empresa_id = Column(String, index=True)
+            return True, "Compra registrada con éxito.", ticket
+        except Exception as e:
+            db.rollback()
+            return False, f"Error: {str(e)}", ""
+        finally:
+            db.close()
 
+    def obtener_catalogo_productos(self):
+        with self.SessionFactory() as db:
+            return (
+                db.query(ProductoTerminado)
+                .filter(ProductoTerminado.empresa_id == self.empresa_id)
+                .order_by(ProductoTerminado.nombre)
+                .all()
+            )
 
-class Receta(Base):
-    __tablename__ = "recetas"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    nombre = Column(String(100), nullable=False)
-    volumen_lote_base = Column(Float, default=1000.0)
-    producto_id = Column(Integer, ForeignKey("productos_terminados.id"), nullable=False)
-    empresa_id = Column(String, index=True)
+    def obtener_productos_terminados(self):
+        with self.SessionFactory() as db:
+            return (
+                db.query(ProductoTerminado)
+                .filter(
+                    ProductoTerminado.empresa_id == self.empresa_id,
+                    ProductoTerminado.activo == True,
+                )
+                .order_by(ProductoTerminado.nombre)
+                .all()
+            )
 
-    producto = relationship("ProductoTerminado")
-    detalles = relationship(
-        "RecetaDetalle", back_populates="receta", cascade="all, delete-orphan"
-    )
+    def guardar_producto_catalogo(self, nombre, presentacion, precio, dias, puntos):
+        db = self.SessionFactory()
+        try:
+            nombre_limpio = nombre.strip().upper()
 
+            existe_pt = (
+                db.query(ProductoTerminado)
+                .filter_by(
+                    nombre=nombre_limpio,
+                    presentacion=presentacion,
+                    empresa_id=self.empresa_id,
+                )
+                .first()
+            )
+            if not existe_pt:
+                codigo_nuevo = f"PT-{datetime.now().strftime('%S%f')[:5]}"
+                db.add(
+                    ProductoTerminado(
+                        codigo=codigo_nuevo,
+                        nombre=nombre_limpio,
+                        presentacion=presentacion,
+                        precio_venta=precio,
+                        dias_consumo=dias,
+                        puntos_pv=puntos,
+                        stock_actual=0,
+                        empresa_id=self.empresa_id,
+                    )
+                )
+                db.commit()
+                return True, "Producto creado exitosamente."
+            return False, "Ese producto ya existe."
+        except Exception as e:
+            db.rollback()
+            return False, str(e)
+        finally:
+            db.close()
 
-class RecetaDetalle(Base):
-    __tablename__ = "receta_detalles"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    receta_id = Column(Integer, ForeignKey("recetas.id"), nullable=False)
-    insumo_id = Column(Integer, ForeignKey("insumos.id"), nullable=False)
-    cantidad_requerida = Column(Float, nullable=False, default=0.0)
-    cantidad_necesaria = Column(Float, nullable=False, default=0.0)
-    empresa_id = Column(String, index=True)
+    def editar_producto_catalogo(self, producto_id, presentacion, precio, dias, puntos):
+        db = self.SessionFactory()
+        try:
+            prod_pt = (
+                db.query(ProductoTerminado)
+                .filter_by(id=producto_id, empresa_id=self.empresa_id)
+                .first()
+            )
+            if not prod_pt:
+                return False, "Producto no encontrado."
+            prod_pt.presentacion = presentacion
+            prod_pt.precio_venta = precio
+            prod_pt.dias_consumo = dias
+            prod_pt.puntos_pv = puntos
+            db.commit()
+            return True, "Catálogo actualizado."
+        except Exception as e:
+            db.rollback()
+            return False, str(e)
+        finally:
+            db.close()
 
-    receta = relationship("Receta", back_populates="detalles")
-    insumo = relationship("Insumo")
+    def eliminar_producto_catalogo(self, producto_id):
+        db = self.SessionFactory()
+        try:
+            prod_pt = (
+                db.query(ProductoTerminado)
+                .filter_by(id=producto_id, empresa_id=self.empresa_id)
+                .first()
+            )
+            if not prod_pt:
+                return False, "Producto no encontrado."
+            db.delete(prod_pt)
+            db.commit()
+            return True, "Producto eliminado completamente de Supabase."
+        except Exception as e:
+            db.rollback()
+            return False, str(e)
+        finally:
+            db.close()
 
+    def obtener_recetas_disponibles(self):
+        with self.SessionFactory() as db:
+            return (
+                db.query(Receta)
+                .filter(Receta.empresa_id == self.empresa_id)
+                .order_by(Receta.nombre)
+                .all()
+            )
 
-class ControlCaja(Base):
-    __tablename__ = "control_caja"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    fecha_apertura = Column(DateTime, default=get_local_time, nullable=False)
-    monto_apertura = Column(Float, default=0.0, nullable=False)
-    ingresos = Column(Float, default=0.0)
-    egresos = Column(Float, default=0.0)
-    usuario_cajero = Column(String(50), nullable=False)
-    empresa_id = Column(String, index=True)
+    def guardar_nueva_formula(self, nombre, volumen, lista_ingredientes):
+        db = self.SessionFactory()
+        try:
+            prod = (
+                db.query(ProductoTerminado)
+                .filter_by(nombre=nombre, empresa_id=self.empresa_id)
+                .first()
+            )
+            if not prod:
+                prod = ProductoTerminado(
+                    codigo=f"PT-{datetime.now().strftime('%H%M%S')}",
+                    nombre=nombre,
+                    linea="Capilar",
+                    presentacion="Base Granel",
+                    empresa_id=self.empresa_id,
+                )
+                db.add(prod)
+                db.flush()
+            receta = (
+                db.query(Receta)
+                .filter_by(nombre=nombre, empresa_id=self.empresa_id)
+                .first()
+            )
+            if receta:
+                db.query(RecetaDetalle).filter_by(
+                    receta_id=receta.id, empresa_id=self.empresa_id
+                ).delete()
+            else:
+                receta = Receta(
+                    nombre=nombre, producto_id=prod.id, empresa_id=self.empresa_id
+                )
+                db.add(receta)
+                db.flush()
+            receta.volumen_lote_base = volumen
+            for ing in lista_ingredientes:
+                db.add(
+                    RecetaDetalle(
+                        receta_id=receta.id,
+                        insumo_id=ing["id"],
+                        cantidad_requerida=ing["cant"],
+                        cantidad_necesaria=ing["cant"],
+                        empresa_id=self.empresa_id,
+                    )
+                )
+            db.commit()
+            return True, "Fórmula guardada."
+        except Exception as e:
+            db.rollback()
+            return False, str(e)
+        finally:
+            db.close()
 
+    def procesar_fraccionamiento_lote(self, receta_nombre, volumen_preparar, envases):
+        db = self.SessionFactory()
+        try:
+            receta = (
+                db.query(Receta)
+                .options(joinedload(Receta.detalles).joinedload(RecetaDetalle.insumo))
+                .filter(
+                    Receta.empresa_id == self.empresa_id,
+                    func.upper(Receta.nombre) == receta_nombre.upper().strip(),
+                )
+                .first()
+            )
+            if not receta:
+                return (
+                    False,
+                    f"La fórmula '{receta_nombre}' no existe en la base de datos.",
+                )
+            if receta.volumen_lote_base <= 0:
+                return False, "El volumen base de la fórmula es inválido."
+            factor = float(volumen_preparar) / float(receta.volumen_lote_base)
+            total_botellas = sum(envases.values())
 
-class Cliente(Base):
-    __tablename__ = "clientes"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    nombre = Column(String(100), nullable=False)
-    telefono = Column(String(20))
-    whatsapp = Column(String(20), default="", nullable=True)
-    email = Column(String(100))
-    ciudad = Column(String(100), default="Cartagena")
-    tipo_cliente = Column(String(50), default="General")
-    activo = Column(Boolean, default=True)
-    empresa_id = Column(String, index=True)
+            faltantes = []
+            consumos_calculados = {}
 
+            for det in receta.detalles:
+                if det.insumo.unidad_medida.upper() in [
+                    "UND",
+                    "UNIDAD",
+                    "U",
+                    "UNIDADES",
+                ]:
+                    is_specific = False
+                    consumo_und = 0
+                    for tam_key, cant_val in envases.items():
+                        tam_num = tam_key.replace("ml", "")
+                        if re.search(rf"\b{tam_num}\b", det.insumo.nombre):
+                            consumo_und += cant_val
+                            is_specific = True
+                    consumo = consumo_und if is_specific else total_botellas
+                else:
+                    consumo = det.cantidad_requerida * factor
 
-class Asesor(Base):
-    __tablename__ = "asesores"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    nombre = Column(String(100), nullable=False)
-    telefono = Column(String(20))
-    activo = Column(Boolean, default=True)
-    empresa_id = Column(String, index=True)
+                consumos_calculados[det.id] = consumo
+                if det.insumo.stock_actual < consumo:
+                    falta = consumo - det.insumo.stock_actual
+                    faltantes.append(
+                        f"- {det.insumo.nombre}: Faltan {int(falta)} UND"
+                        if det.insumo.unidad_medida.upper() in ["UND", "UNIDAD"]
+                        else f"- {det.insumo.nombre}: Faltan {falta:.2f} {det.insumo.unidad_medida}"
+                    )
 
+            if faltantes:
+                return False, "Stock insuficiente:\n\n" + "\n".join(faltantes)
 
-class GastoOperativo(Base):
-    __tablename__ = "gastos_operativos"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    fecha = Column(DateTime, default=get_local_time)
-    descripcion = Column(String(200), nullable=False)
-    monto = Column(Float, nullable=False)
-    empresa_id = Column(String, index=True)
+            for det in receta.detalles:
+                det.insumo.stock_actual -= consumos_calculados[det.id]
+            nombre_base = (
+                receta.nombre.replace("FORMULA: ", "")
+                .replace("LOTE BASE - ", "")
+                .strip()
+            )
 
+            for tam, cant in envases.items():
+                if cant > 0:
+                    prod = (
+                        db.query(ProductoTerminado)
+                        .filter(
+                            ProductoTerminado.empresa_id == self.empresa_id,
+                            ProductoTerminado.nombre.contains(nombre_base),
+                            ProductoTerminado.presentacion.contains(tam),
+                        )
+                        .first()
+                    )
+                    if prod:
+                        prod.stock_actual += cant
+                    else:
+                        prod = ProductoTerminado(
+                            codigo=f"PT-{nombre_base[:3]}-{tam}",
+                            nombre=f"{nombre_base} {tam}",
+                            presentacion=tam,
+                            stock_actual=cant,
+                            empresa_id=self.empresa_id,
+                        )
+                        db.add(prod)
+                        db.flush()
+                    db.add(
+                        KardexMovimiento(
+                            producto_id=prod.id,
+                            operacion="Entrada",
+                            cantidad=cant,
+                            motivo="Producción de Lote",
+                            involucrado="Planta",
+                            empresa_id=self.empresa_id,
+                        )
+                    )
+            db.commit()
+            return True, "¡Éxito! Lote procesado y stock actualizado."
+        except Exception as e:
+            db.rollback()
+            return False, f"Error interno: {str(e)}"
+        finally:
+            db.close()
 
-class Venta(Base):
-    __tablename__ = "ventas"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    factura_nro = Column(String(20), unique=True, nullable=False)
-    fecha = Column(DateTime, default=get_local_time)
-    cliente_id = Column(Integer, ForeignKey("clientes.id"), nullable=False)
-    vendedor = Column(String(50))
-    tipo_destinatario = Column(String(50))
-    medio_pago = Column(String(50))
-    total_bruto = Column(Float, default=0.0)
-    descuento_total = Column(Float, default=0.0)
-    total_neto = Column(Float, default=0.0)
-    saldo_pendiente = Column(Float, default=0.0)
-    estado_financiero = Column(String(20), default="Pagado")
-    empresa_id = Column(String, index=True)
+    def registrar_movimiento_kardex(self, producto_id, motivo, cantidad, involucrado):
+        db = self.SessionFactory()
+        try:
+            prod = (
+                db.query(ProductoTerminado)
+                .filter_by(id=producto_id, empresa_id=self.empresa_id)
+                .first()
+            )
+            if not prod:
+                return False, "Producto no encontrado.", ""
+            operacion = "Entrada" if "Suma" in motivo else "Salida"
+            if operacion == "Salida" and prod.stock_actual < cantidad:
+                return False, f"Stock insuficiente.", ""
+            if operacion == "Entrada":
+                prod.stock_actual += cantidad
+            else:
+                prod.stock_actual -= cantidad
+            db.add(
+                KardexMovimiento(
+                    producto_id=producto_id,
+                    operacion=operacion,
+                    cantidad=cantidad,
+                    motivo=motivo,
+                    involucrado=involucrado,
+                    empresa_id=self.empresa_id,
+                )
+            )
+            db.commit()
+            return (
+                True,
+                "Movimiento registrado.",
+                self._generar_ticket(
+                    involucrado,
+                    motivo,
+                    cantidad,
+                    f"{prod.nombre} ({prod.presentacion})",
+                ),
+            )
+        except Exception as e:
+            db.rollback()
+            return False, str(e), ""
+        finally:
+            db.close()
 
-    cliente = relationship("Cliente")
-    detalles = relationship(
-        "VentaDetalle", back_populates="venta", cascade="all, delete-orphan"
-    )
+    def _generar_ticket(self, involucrado, operacion, cant, producto):
+        return f"\n📦 LINDLEY CLOUD OS\nSOPORTE: {datetime.now().strftime('%Y-%m-%d %H:%M')}\nOPERACIÓN: {operacion}\nCANT: {cant} | PROD: {producto}\n"
 
+    def obtener_auditoria_kardex(self):
+        with self.SessionFactory() as db:
+            return (
+                db.query(KardexMovimiento)
+                .options(
+                    joinedload(KardexMovimiento.producto),
+                    joinedload(KardexMovimiento.insumo),
+                )
+                .filter(KardexMovimiento.empresa_id == self.empresa_id)
+                .order_by(KardexMovimiento.fecha.desc())
+                .limit(100)
+                .all()
+            )
 
-class VentaDetalle(Base):
-    __tablename__ = "venta_detalles"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    venta_id = Column(Integer, ForeignKey("ventas.id"), nullable=False)
-    producto_id = Column(Integer, ForeignKey("productos_terminados.id"), nullable=False)
-    cantidad = Column(Integer, nullable=False)
-    precio_unitario = Column(Float, nullable=False)
-    subtotal = Column(Float, nullable=False)
-    empresa_id = Column(String, index=True)
+    def obtener_kardex_matematico(self):
+        with self.SessionFactory() as db:
+            productos = (
+                db.query(ProductoTerminado)
+                .filter(ProductoTerminado.empresa_id == self.empresa_id)
+                .all()
+            )
+            resultados = []
+            for p in productos:
+                sumas = (
+                    db.query(func.sum(KardexMovimiento.cantidad))
+                    .filter(
+                        KardexMovimiento.empresa_id == self.empresa_id,
+                        KardexMovimiento.producto_id == p.id,
+                        KardexMovimiento.operacion == "Entrada",
+                    )
+                    .scalar()
+                    or 0
+                )
+                restas = (
+                    db.query(func.sum(KardexMovimiento.cantidad))
+                    .filter(
+                        KardexMovimiento.empresa_id == self.empresa_id,
+                        KardexMovimiento.producto_id == p.id,
+                        KardexMovimiento.operacion == "Salida",
+                    )
+                    .scalar()
+                    or 0
+                )
+                resultados.append(
+                    {
+                        "nombre": f"{p.nombre} - {p.presentacion}",
+                        "sumas": sumas,
+                        "restas": restas,
+                        "stock_real": p.stock_actual,
+                    }
+                )
+            return resultados
 
-    venta = relationship("Venta", back_populates="detalles")
-    producto = relationship("ProductoTerminado")
+    def obtener_clientes(self):
+        with self.SessionFactory() as db:
+            return (
+                db.query(Cliente)
+                .filter(Cliente.empresa_id == self.empresa_id, Cliente.activo == True)
+                .order_by(Cliente.nombre)
+                .all()
+            )
 
+    def guardar_cliente(self, id_cliente, nombre, telefono, ciudad, email):
+        db = self.SessionFactory()
+        try:
+            wa = telefono if telefono else "N/A"
+            if id_cliente:
+                cliente = (
+                    db.query(Cliente)
+                    .filter_by(id=id_cliente, empresa_id=self.empresa_id)
+                    .first()
+                )
+                if cliente:
+                    cliente.nombre = nombre.strip().title()
+                    cliente.telefono = telefono
+                    cliente.whatsapp = wa
+                    cliente.ciudad = ciudad
+                    cliente.email = email
+            else:
+                db.add(
+                    Cliente(
+                        nombre=nombre.strip().title(),
+                        telefono=telefono,
+                        whatsapp=wa,
+                        email=email,
+                        ciudad=ciudad,
+                        tipo_cliente="General",
+                        empresa_id=self.empresa_id,
+                    )
+                )
+            db.commit()
+            return True, "Cliente guardado."
+        except Exception as e:
+            db.rollback()
+            return False, str(e)
+        finally:
+            db.close()
 
-class Abono(Base):
-    __tablename__ = "abonos"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    venta_id = Column(Integer, ForeignKey("ventas.id"), nullable=False)
-    fecha = Column(DateTime, default=get_local_time)
-    monto = Column(Float, nullable=False)
-    empresa_id = Column(String, index=True)
+    def eliminar_cliente(self, id_cliente):
+        db = self.SessionFactory()
+        try:
+            cli = (
+                db.query(Cliente)
+                .filter_by(id=id_cliente, empresa_id=self.empresa_id)
+                .first()
+            )
+            if cli:
+                cli.activo = False
+                db.commit()
+                return True
+            return False
+        except:
+            db.rollback()
+            return False
+        finally:
+            db.close()
 
-    venta = relationship("Venta")
+    def obtener_asesores(self):
+        with self.SessionFactory() as db:
+            return (
+                db.query(Asesor)
+                .filter(Asesor.empresa_id == self.empresa_id, Asesor.activo == True)
+                .order_by(Asesor.nombre)
+                .all()
+            )
 
+    def guardar_asesor(self, id_asesor, nombre, telefono):
+        db = self.SessionFactory()
+        try:
+            if id_asesor:
+                asesor = (
+                    db.query(Asesor)
+                    .filter_by(id=id_asesor, empresa_id=self.empresa_id)
+                    .first()
+                )
+                if asesor:
+                    asesor.nombre = nombre.strip().upper()
+                    asesor.telefono = telefono
+            else:
+                db.add(
+                    Asesor(
+                        nombre=nombre.strip().upper(),
+                        telefono=telefono,
+                        empresa_id=self.empresa_id,
+                    )
+                )
+            db.commit()
+            return True, "Asesor guardado."
+        except Exception as e:
+            db.rollback()
+            return False, str(e)
+        finally:
+            db.close()
 
-class KardexMovimiento(Base):
-    __tablename__ = "kardex_movimientos"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    fecha = Column(DateTime, default=get_local_time)
-    producto_id = Column(Integer, ForeignKey("productos_terminados.id"), nullable=True)
-    insumo_id = Column(Integer, ForeignKey("insumos.id"), nullable=True)
-    operacion = Column(String(50))
-    cantidad = Column(Float)
-    motivo = Column(String(100))
-    involucrado = Column(String(100), nullable=True)
-    empresa_id = Column(String, index=True)
+    def eliminar_asesor(self, id_asesor):
+        db = self.SessionFactory()
+        try:
+            ase = (
+                db.query(Asesor)
+                .filter_by(id=id_asesor, empresa_id=self.empresa_id)
+                .first()
+            )
+            if ase:
+                ase.activo = False
+                db.commit()
+                return True
+            return False
+        except:
+            db.rollback()
+            return False
+        finally:
+            db.close()
 
-    producto = relationship("ProductoTerminado")
-    insumo = relationship("Insumo")
+    def obtener_gastos(self):
+        with self.SessionFactory() as db:
+            return (
+                db.query(GastoOperativo)
+                .filter(GastoOperativo.empresa_id == self.empresa_id)
+                .order_by(GastoOperativo.fecha.desc())
+                .all()
+            )
 
+    def guardar_gasto(self, descripcion, monto):
+        db = self.SessionFactory()
+        try:
+            db.add(
+                GastoOperativo(
+                    descripcion=descripcion.strip().capitalize(),
+                    monto=monto,
+                    empresa_id=self.empresa_id,
+                )
+            )
+            caja = (
+                db.query(ControlCaja)
+                .filter_by(empresa_id=self.empresa_id)
+                .order_by(ControlCaja.id.desc())
+                .first()
+            )
+            if caja:
+                caja.egresos += monto
+            db.commit()
+            return True
+        except:
+            db.rollback()
+            return False
+        finally:
+            db.close()
 
-class Suscriptor(Base):
-    __tablename__ = "suscriptores"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    usuario = Column(String(100), nullable=False, unique=True)
-    password = Column(String(100), nullable=False)
-    fecha_vencimiento = Column(Date, nullable=False)
-    plan = Column(String(100))
-    empresa_id = Column(String, index=True)
+    def generar_nro_factura(self):
+        with self.SessionFactory() as db:
+            ultima = (
+                db.query(Venta)
+                .filter(Venta.empresa_id == self.empresa_id)
+                .order_by(Venta.id.desc())
+                .first()
+            )
+            return (
+                f"FACT-{(int(ultima.factura_nro.split('-')[1]) + 1):03d}"
+                if ultima
+                else "FACT-001"
+            )
+
+    def procesar_venta(self, cliente_id, vendedor, tipo_dest, medio_pago, carrito):
+        db = self.SessionFactory()
+        try:
+            total_neto = sum([item["subtotal"] for item in carrito])
+            nro = self.generar_nro_factura()
+            saldo = total_neto if medio_pago in ["Crédito", "Sistecrédito"] else 0.0
+            venta = Venta(
+                factura_nro=nro,
+                cliente_id=cliente_id,
+                vendedor=vendedor,
+                tipo_destinatario=tipo_dest,
+                medio_pago=medio_pago,
+                total_neto=total_neto,
+                saldo_pendiente=saldo,
+                estado_financiero="Debe" if saldo > 0 else "Pagado",
+                empresa_id=self.empresa_id,
+            )
+            db.add(venta)
+            db.flush()
+
+            cliente = (
+                db.query(Cliente)
+                .filter_by(id=cliente_id, empresa_id=self.empresa_id)
+                .first()
+            )
+            nombre_cliente = cliente.nombre if cliente else "Consumidor Final"
+
+            for item in carrito:
+                db.add(
+                    VentaDetalle(
+                        venta_id=venta.id,
+                        producto_id=item["producto_id"],
+                        cantidad=item["cant"],
+                        precio_unitario=item["precio"],
+                        subtotal=item["subtotal"],
+                        empresa_id=self.empresa_id,
+                    )
+                )
+                prod = (
+                    db.query(ProductoTerminado)
+                    .filter_by(id=item["producto_id"], empresa_id=self.empresa_id)
+                    .first()
+                )
+                if prod:
+                    prod.stock_actual -= item["cant"]
+                    db.add(
+                        KardexMovimiento(
+                            producto_id=prod.id,
+                            operacion="Salida",
+                            cantidad=item["cant"],
+                            motivo=f"Venta {nro}",
+                            involucrado=vendedor,
+                            empresa_id=self.empresa_id,
+                        )
+                    )
+
+            if saldo == 0:
+                caja = (
+                    db.query(ControlCaja)
+                    .filter_by(empresa_id=self.empresa_id)
+                    .order_by(ControlCaja.id.desc())
+                    .first()
+                )
+                if caja:
+                    caja.ingresos += total_neto
+            db.commit()
+
+            ticket = f"✨ *IVONNE BERNATE PRODUCTOS CAPILARES*\n🧾 *FACTURA N°:* {nro}\n📅 *Fecha:* {datetime.now().strftime('%Y-%m-%d %H:%M')}\n👤 *Cliente:* {nombre_cliente}\n💼 *Atiende:* {vendedor}\n💳 *Medio de Pago:* {medio_pago}\n----------------------------------------\n"
+            for item in carrito:
+                cant = int(item["cant"])
+                prec = int(item["precio"])
+                subt = int(item["subtotal"])
+                ticket += f"▪ {cant}x *{item['nombre']}*\n   $ {prec:,.0f}  =>  $ {subt:,.0f}\n"
+
+            total_formateado = int(total_neto)
+            ticket += f"----------------------------------------\n💰 *TOTAL A PAGAR: $ {total_formateado:,.0f}*\n"
+
+            return True, f"Venta {nro} procesada.", ticket
+        except Exception as e:
+            db.rollback()
+            return False, str(e), ""
+        finally:
+            db.close()
+
+    def obtener_cartera_por_cliente(self, cliente_id):
+        with self.SessionFactory() as db:
+            return (
+                db.query(Venta)
+                .filter(
+                    Venta.empresa_id == self.empresa_id,
+                    Venta.cliente_id == cliente_id,
+                    Venta.saldo_pendiente > 0,
+                    Venta.medio_pago == "Crédito",
+                )
+                .order_by(Venta.fecha.asc())
+                .all()
+            )
+
+    def obtener_cartera(self):
+        with self.SessionFactory() as db:
+            return (
+                db.query(Venta)
+                .options(joinedload(Venta.cliente))
+                .filter(
+                    Venta.empresa_id == self.empresa_id,
+                    Venta.saldo_pendiente > 0,
+                    Venta.medio_pago == "Crédito",
+                )
+                .order_by(Venta.fecha.desc())
+                .all()
+            )
+
+    def registrar_abono_fifo(self, cliente_id, monto):
+        db = self.SessionFactory()
+        try:
+            ventas = (
+                db.query(Venta)
+                .filter(
+                    Venta.empresa_id == self.empresa_id,
+                    Venta.cliente_id == cliente_id,
+                    Venta.saldo_pendiente > 0,
+                    Venta.medio_pago == "Crédito",
+                )
+                .order_by(Venta.fecha.asc())
+                .all()
+            )
+            if not ventas:
+                return False, "El cliente no tiene facturas a crédito pendientes."
+            if monto <= 0:
+                return False, "El monto debe ser mayor a 0."
+            monto_restante = monto
+            mensajes_abono = []
+            for v in ventas:
+                if monto_restante <= 0:
+                    break
+                abono_aplicado = min(monto_restante, v.saldo_pendiente)
+                db.add(
+                    Abono(
+                        venta_id=v.id, monto=abono_aplicado, empresa_id=self.empresa_id
+                    )
+                )
+                v.saldo_pendiente -= abono_aplicado
+                if v.saldo_pendiente <= 0:
+                    v.estado_financiero = "Pagado"
+                monto_restante -= abono_aplicado
+                mensajes_abono.append(f"#{v.factura_nro}")
+            caja = (
+                db.query(ControlCaja)
+                .filter_by(empresa_id=self.empresa_id)
+                .order_by(ControlCaja.id.desc())
+                .first()
+            )
+            if caja:
+                caja.ingresos += monto - monto_restante
+            db.commit()
+            return True, f"Pago aplicado a las facturas: {', '.join(mensajes_abono)}"
+        except Exception as e:
+            db.rollback()
+            return False, str(e)
+        finally:
+            db.close()
+
+    def obtener_metricas_dashboard(self):
+        with self.SessionFactory() as db:
+            hoy = datetime.now().date()
+            caja = (
+                db.query(ControlCaja)
+                .filter_by(empresa_id=self.empresa_id)
+                .order_by(ControlCaja.id.desc())
+                .first()
+            )
+            ventas_hoy = (
+                db.query(func.sum(Venta.total_neto))
+                .filter(
+                    Venta.empresa_id == self.empresa_id, func.date(Venta.fecha) == hoy
+                )
+                .scalar()
+                or 0.0
+            )
+            total_clientes = (
+                db.query(func.count(Cliente.id))
+                .filter(Cliente.empresa_id == self.empresa_id)
+                .scalar()
+                or 0
+            )
+            return {
+                "caja_actual": (caja.monto_apertura + caja.ingresos - caja.egresos)
+                if caja
+                else 0.0,
+                "ventas_hoy": ventas_hoy,
+                "total_clientes": total_clientes,
+            }
+
+    def obtener_datos_suscriptor(self, usuario):
+        with self.SessionFactory() as db:
+            return db.query(Suscriptor).filter(Suscriptor.usuario == usuario).first()
+
+    def cambiar_password_suscriptor(self, usuario, password_actual, nueva_password):
+        db = self.SessionFactory()
+        try:
+            sub = db.query(Suscriptor).filter(Suscriptor.usuario == usuario).first()
+            if not sub:
+                return False, "Usuario no encontrado en la base de datos."
+            if sub.password != password_actual:
+                return False, "La contraseña actual es incorrecta."
+            sub.password = nueva_password
+            db.commit()
+            return True, "¡Contraseña actualizada exitosamente!"
+        except Exception as e:
+            db.rollback()
+            return False, f"Error en la base de datos: {str(e)}"
+        finally:
+            db.close()
+
+    def verificar_acceso(self, usuario_ingresado, clave_ingresada):
+        db = self.SessionFactory()
+        try:
+            usuario_db = (
+                db.query(Suscriptor)
+                .filter(
+                    Suscriptor.usuario == usuario_ingresado,
+                    Suscriptor.password == clave_ingresada,
+                )
+                .first()
+            )
+            if usuario_db:
+                datos_usuario = {
+                    "usuario": usuario_db.usuario,
+                    "empresa_id": usuario_db.empresa_id,
+                    "plan": usuario_db.plan,
+                }
+                return True, datos_usuario
+            else:
+                return False, None
+        except Exception as e:
+            print(f"Error en el login: {e}")
+            return False, None
+        finally:
+            db.close()
+
+    def eliminar_pedido_erroneo(self, numero_orden):
+        db = self.SessionFactory()
+        try:
+            venta = (
+                db.query(Venta)
+                .filter(
+                    Venta.factura_nro == numero_orden,
+                    Venta.empresa_id == self.empresa_id,
+                )
+                .first()
+            )
+            if not venta:
+                return False, "❌ El pedido no existe o ya fue eliminado."
+
+            detalles = (
+                db.query(VentaDetalle)
+                .filter(
+                    VentaDetalle.venta_id == venta.id,
+                    VentaDetalle.empresa_id == self.empresa_id,
+                )
+                .all()
+            )
+            for det in detalles:
+                prod = (
+                    db.query(ProductoTerminado)
+                    .filter_by(id=det.producto_id, empresa_id=self.empresa_id)
+                    .first()
+                )
+                if prod:
+                    prod.stock_actual += det.cantidad
+                db.delete(det)
+
+            db.delete(venta)
+            db.commit()
+            return (
+                True,
+                f"✅ Pedido {numero_orden} eliminado permanentemente y stock recuperado.",
+            )
+        except Exception as e:
+            db.rollback()
+            return False, f"Error al eliminar: {str(e)}"
+        finally:
+            db.close()
+
+    def obtener_lista_compras(self):
+        db = self.SessionFactory()
+        try:
+            movimientos = (
+                db.query(KardexMovimiento.motivo)
+                .filter(
+                    KardexMovimiento.empresa_id == self.empresa_id,
+                    KardexMovimiento.motivo.like("Compra%"),
+                )
+                .distinct()
+                .all()
+            )
+            return [m[0] for m in movimientos]
+        finally:
+            db.close()
+
+    def eliminar_compra_erronea(self, motivo_compra):
+        db = self.SessionFactory()
+        try:
+            movs = (
+                db.query(KardexMovimiento)
+                .filter(
+                    KardexMovimiento.motivo == motivo_compra,
+                    KardexMovimiento.empresa_id == self.empresa_id,
+                )
+                .all()
+            )
+            if not movs:
+                return False, "No se encontraron registros para esa compra."
+
+            for m in movs:
+                if m.insumo_id:
+                    ins = (
+                        db.query(Insumo)
+                        .filter_by(id=m.insumo_id, empresa_id=self.empresa_id)
+                        .first()
+                    )
+                    if ins:
+                        ins.stock_actual -= m.cantidad
+                elif m.producto_id:
+                    prod = (
+                        db.query(ProductoTerminado)
+                        .filter_by(id=m.producto_id, empresa_id=self.empresa_id)
+                        .first()
+                    )
+                    if prod:
+                        prod.stock_actual -= m.cantidad
+                db.delete(m)
+
+            db.commit()
+            return (
+                True,
+                f"✅ Compra '{motivo_compra}' eliminada y stock revertido correctamente.",
+            )
+        except Exception as e:
+            db.rollback()
+            return False, f"Error al eliminar compra: {str(e)}"
+        finally:
+            db.close()
+
+    def obtener_todas_las_ventas(self):
+        db = self.SessionFactory()
+        try:
+            return (
+                db.query(Venta)
+                .filter(Venta.empresa_id == self.empresa_id)
+                .order_by(Venta.fecha.asc())
+                .all()
+            )
+        finally:
+            db.close()
+
