@@ -138,7 +138,7 @@ with st.sidebar.expander("🚀 PLANES DE SUSCRIPCIÓN LIN-PRO X WEB"):
 💎 4. Plan Anual (Best Seller) • Precio: *199.000 COP** / año
 • 🔥 *Ahorras: 101.000 COP (¡4 meses GRATIS!) • (Aprox. $49.75 USD)
     """)
-    st.markdown(f"[🟢 ¿Quieres renovar o cambiar tu plan? 🟢 Pulsa aquí para enviar un mensaje de WhatsApp](https://wa.me/{NUMERO_WHATSAPP})")
+    st.markdown(f"[🟢 ¿Quieres renovar o cambiar tu plan? Pulsa aquí para enviar un mensaje de WhatsApp 🟢](https://wa.me/{NUMERO_WHATSAPP})")
 
 st.sidebar.markdown("---")
 
