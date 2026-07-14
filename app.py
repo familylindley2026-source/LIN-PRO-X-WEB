@@ -1016,7 +1016,7 @@ elif menu_seleccionado == "🏭 Inventario Maestro":
         renderizar_tabla_estilizada(data_inv, "Nombre")
 
     with tab2:
-        with st.form("form_insumo"):
+        with st.form("form_insumo", clear_on_submit=True):
             st.markdown(
                 "Deja el campo **ID** vacío para crear uno nuevo, o ingresa el ID de la tabla para editar."
             )
@@ -1191,7 +1191,7 @@ elif menu_seleccionado == "👥 CRM y Clientes":
         renderizar_tabla_estilizada(data_cli, "Nombre")
 
     with tab2:
-        with st.form("f_cliente"):
+        with st.form("f_cliente", clear_on_submit=True):
             st.write("Para editar, ingresa el ID. Para crear nuevo, déjalo vacío.")
             c1, c2 = st.columns(2)
             c_id = c1.text_input("ID Cliente")
@@ -1216,7 +1216,7 @@ elif menu_seleccionado == "💼 Directorio Asesores":
         renderizar_tabla_estilizada(data_ase, "Nombre")
 
     with tab2:
-        with st.form("f_asesor"):
+        with st.form("f_asesor", clear_on_submit=True):
             c_id = st.text_input("ID Asesor (Vacío para nuevo)")
             c_nom = st.text_input("Nombre *")
             c_tel = st.text_input("Teléfono")
@@ -1245,7 +1245,7 @@ elif menu_seleccionado == "🧴 Catálogo Productos":
         renderizar_tabla_estilizada(data_cat, "Nombre")
 
     with tab2:
-        with st.form("f_cat"):
+        with st.form("f_cat", depth_check=None, clear_on_submit=True):
             st.info(
                 "La creación de producto aquí lo registra automáticamente como Producto Terminado para inventario."
             )
@@ -1277,7 +1277,7 @@ elif menu_seleccionado == "💸 Gastos Operativos":
         renderizar_tabla_estilizada(data_gas, "Descripción")
 
     with tab2:
-        with st.form("f_gasto"):
+        with st.form("f_gasto", clear_on_submit=True):
             desc = st.text_input("Descripción del Gasto")
             monto = st.number_input("Monto ($)", min_value=0.0)
             if st.form_submit_button("Registrar Gasto", type="primary"):
@@ -1319,7 +1319,7 @@ elif menu_seleccionado == "💰 Cartera y Abonos":
             )
 
             st.error(f"Deuda Total: $ {int(mora_total):,.0f}")
-            with st.form("f_abono"):
+            with st.form("f_abono", clear_on_submit=True):
                 abono = st.number_input(
                     "Monto del Abono ($)", min_value=1.0, max_value=float(mora_total)
                 )
@@ -1376,7 +1376,7 @@ elif menu_seleccionado == "🔒 Seguridad y Cuenta":
 
     with col2:
         st.markdown("### 🔑 Cambiar Contraseña")
-        with st.form("form_cambio_pw"):
+        with st.form("form_cambio_pw", clear_on_submit=True):
             pw_actual = st.text_input("Contraseña Actual", type="password")
             pw_nueva = st.text_input("Nueva Contraseña Personal", type="password")
             pw_conf = st.text_input("Confirmar Nueva Contraseña", type="password")
