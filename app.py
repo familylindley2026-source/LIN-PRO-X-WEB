@@ -703,16 +703,41 @@ elif menu_seleccionado == "🛒 Punto de Venta":
                 (c for c in controller.obtener_clientes() if c.nombre == cliente), None
             )
             c_id = cliente_obj.id if cliente_obj else 1
-            exito, msg, ticket = controller.procesar_venta(
+
+            # Ahora recibimos 4 variables (incluyendo los bytes del PDF)
+            exito, msg, ticket, pdf_bytes = controller.procesar_venta(
                 c_id, vendedor, tipo_dest, medio_pago, st.session_state.carrito
             )
+
             if exito:
                 st.success(msg)
+
+                # Creamos dos columnas para los botones finales
+                c_wa, c_pdf = st.columns(2)
+
+                # Botón de WhatsApp
+                with c_wa:
+                    url_wa = f"https://wa.me/{NUMERO_WHATSAPP}?text={urllib.parse.quote(ticket)}"
+                    st.link_button(
+                        "📲 Compartir Ticket por WhatsApp",
+                        url_wa,
+                        use_container_width=True,
+                    )
+
+                # Botón de Descarga PDF
+                with c_pdf:
+                    if pdf_bytes:
+                        st.download_button(
+                            label="📄 Descargar Factura PDF",
+                            data=pdf_bytes,
+                            file_name=f"Factura_{msg.split(' ')[1]}.pdf",  # Extrae el número de factura
+                            mime="application/pdf",
+                            use_container_width=True,
+                            type="primary",
+                        )
+
+                # Vaciamos el carrito HASTA EL FINAL para no perder los datos antes de imprimir
                 st.session_state.carrito = []
-                url_wa = (
-                    f"https://wa.me/{NUMERO_WHATSAPP}?text={urllib.parse.quote(ticket)}"
-                )
-                st.link_button("📲 Compartir por WhatsApp", url_wa)
             else:
                 st.error(msg)
 

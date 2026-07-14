@@ -2,6 +2,7 @@ from datetime import datetime
 import re
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload
+from fpdf import FPDF
 
 from models import (
     Insumo,
@@ -793,7 +794,10 @@ class SistemaController:
             for item in carrito:
                 ticket += f"▪ {int(item['cant'])}x *{item['nombre']}*\n   $ {int(item['precio']):,.0f}  =>  $ {int(item['subtotal']):,.0f}\n"
             ticket += f"----------------------------------------\n💰 *TOTAL A PAGAR: $ {int(total_neto):,.0f}*\n"
-            return True, f"Venta {nro} procesada.", ticket
+            pdf_bytes = self.generar_pdf_venta(
+                nro, nombre_cliente, vendedor, medio_pago, carrito, total_neto
+            )
+            return True, f"Venta {nro} procesada.", ticket, pdf_bytes
         except Exception as e:
             db.rollback()
             return False, str(e), ""
@@ -1298,3 +1302,88 @@ class SistemaController:
             return False, f"Error interno: {str(e)}", ""
         finally:
             db.close()
+
+    def generar_pdf_venta(
+        self, nro_factura, nombre_cliente, vendedor, medio_pago, carrito, total_neto
+    ):
+        """Genera un archivo PDF profesional en memoria para descargarlo."""
+        try:
+            pdf = FPDF(orientation="P", unit="mm", format="A4")
+            pdf.add_page()
+
+            # 1. ENCABEZADO DE LA EMPRESA
+            pdf.set_font("helvetica", "B", 18)
+            # Usamos el ID de la empresa como título (puedes mejorarlo luego)
+            nombre_negocio = str(self.empresa_id).replace("_", " ").upper()
+            pdf.cell(0, 10, txt=nombre_negocio, ln=True, align="C")
+
+            pdf.set_font("helvetica", "", 10)
+            pdf.cell(0, 6, txt="Documento Electrónico de Venta", ln=True, align="C")
+            pdf.ln(8)
+
+            # 2. DATOS DE LA FACTURA
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(35, 6, txt="Factura Nro:", border=0)
+            pdf.set_font("helvetica", "", 10)
+            pdf.cell(65, 6, txt=nro_factura, ln=True)
+
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(35, 6, txt="Fecha:", border=0)
+            pdf.set_font("helvetica", "", 10)
+            pdf.cell(65, 6, txt=datetime.now().strftime("%Y-%m-%d %H:%M"), ln=True)
+
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(35, 6, txt="Cliente:", border=0)
+            pdf.set_font("helvetica", "", 10)
+            pdf.cell(65, 6, txt=nombre_cliente, ln=True)
+
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(35, 6, txt="Medio Pago:", border=0)
+            pdf.set_font("helvetica", "", 10)
+            pdf.cell(65, 6, txt=medio_pago, ln=True)
+
+            pdf.ln(10)
+
+            # 3. TABLA DE PRODUCTOS (Cabecera)
+            pdf.set_fill_color(220, 220, 220)
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(15, 8, txt="Cant", border=1, align="C", fill=True)
+            pdf.cell(
+                95, 8, txt="Descripción del Producto", border=1, align="C", fill=True
+            )
+            pdf.cell(40, 8, txt="V. Unitario", border=1, align="C", fill=True)
+            pdf.cell(40, 8, txt="Subtotal", border=1, align="C", fill=True)
+            pdf.ln()
+
+            # 4. FILAS DEL CARRITO
+            pdf.set_font("helvetica", "", 10)
+            for item in carrito:
+                pdf.cell(15, 8, txt=str(int(item["cant"])), border=1, align="C")
+                pdf.cell(95, 8, txt=item["nombre"][:45], border=1, align="L")
+                pdf.cell(
+                    40, 8, txt=f"$ {int(item['precio']):,.0f}", border=1, align="C"
+                )
+                pdf.cell(
+                    40, 8, txt=f"$ {int(item['subtotal']):,.0f}", border=1, align="C"
+                )
+                pdf.ln()
+
+            # 5. TOTAL A PAGAR
+            pdf.ln(5)
+            pdf.set_font("helvetica", "B", 12)
+            pdf.cell(150, 10, txt="TOTAL A PAGAR:", align="R")
+            pdf.cell(40, 10, txt=f"$ {int(total_neto):,.0f}", border=1, align="C")
+
+            # 6. PIE DE PÁGINA
+            pdf.ln(20)
+            pdf.set_font("helvetica", "I", 9)
+            pdf.cell(
+                0, 5, txt="Gracias por su compra. ¡Vuelva pronto!", align="C", ln=True
+            )
+
+            # Retornar el archivo en formato de bytes (listo para descargar)
+            return bytes(pdf.output())
+
+        except Exception as e:
+            print(f"Error generando PDF: {e}")
+            return None
