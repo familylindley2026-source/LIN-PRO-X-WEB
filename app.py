@@ -1452,12 +1452,12 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
             nuevo_password = st.text_input("Contraseña temporal", type="password")
             nuevo_plan = st.selectbox(
                 "Plan de Suscripción",
-                ["Plan Mensual", "Plan Trimestral", "Plan Semestral", "Plan Anual"],
+                ["Plan Personal (para distribuidores)", "Plan Trimestral (Constructores)", "Plan Semestral (para líderes)", "Plan Anual (Más vendido)"],
             )
 
         # LÓGICA DE AUTOCÁLCULO DE FECHAS SEGÚN EL PLAN
         hoy = datetime.now().date()
-        if nuevo_plan == "Plan Personal (para distribuidores) ":
+        if nuevo_plan == "Plan Personal (para distribuidores)":
             dias_sumar = 30
         elif nuevo_plan == "Plan Trimestral (Constructores)":
             dias_sumar = 90
