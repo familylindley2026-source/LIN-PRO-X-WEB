@@ -1,8 +1,8 @@
 import os
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.orm import declarative_base, declared_attr
+from sqlalchemy.orm import sessionmaker, declarative_base, declared_attr
+
 load_dotenv()
 
 # Obtener URL de la base de datos (Supabase)
@@ -20,10 +20,12 @@ engine = create_engine(
 # Crear la fábrica de sesiones
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+
 # Base para que los modelos construyan las tablas
 class ConfiguracionBase:
     @declared_attr
     def __table_args__(cls):
-        return {'extend_existing': True}
+        return {"extend_existing": True}
+
 
 Base = declarative_base(cls=ConfiguracionBase)

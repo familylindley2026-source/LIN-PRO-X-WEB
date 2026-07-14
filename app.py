@@ -170,9 +170,11 @@ menu_opciones = [
     "💸 Gastos Operativos",
     "💰 Cartera y Abonos",
     "🔒 Seguridad y Cuenta",
+    "👑 Panel SuperAdmin SaaS",
 ]
 
 menu_seleccionado = st.sidebar.radio("Módulos del Sistema:", menu_opciones)
+
 
 # ==========================================
 # 📊 LÓGICA DE PANTALLAS
@@ -204,7 +206,7 @@ if menu_seleccionado == "📊 Dashboard":
                     "Día": v.fecha.date(),
                     "Vendedor": v.vendedor,
                     "Canal": v.tipo_destinatario,
-                    "Medio_Pago": v.medio_pago,  # <--- Nuevo campo para el gráfico 5
+                    "Medio_Pago": v.medio_pago,
                     "Total": v.total_neto,
                     "Factura": v.factura_nro,
                 }
@@ -500,43 +502,43 @@ if menu_seleccionado == "📊 Dashboard":
                         }
                     )
 
-            df_cartera_facturas = pd.DataFrame(datos_cartera)
+                df_cartera_facturas = pd.DataFrame(datos_cartera)
 
-            if not df_cartera_facturas.empty:
-                data_plot = df_cartera_facturas.melt(
-                    id_vars=["Etiqueta", "Saldo Pendiente", "Cliente", "Factura"],
-                    value_vars=["Deuda Original", "Abono Aplicado"],
-                    var_name="Tipo",
-                    value_name="Monto",
-                )
-                chart = (
-                    alt.Chart(data_plot)
-                    .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
-                    .encode(
-                        x=alt.X(
-                            "Etiqueta:N",
-                            title="Facturas Activas por Cliente",
-                            axis=alt.Axis(labelAngle=-45),
-                        ),
-                        y=alt.Y("Monto:Q", stack=None, title="Monto ($)"),
-                        color=alt.Color(
-                            "Tipo:N",
-                            scale=alt.Scale(
-                                domain=["Deuda Original", "Abono Aplicado"],
-                                range=["#ff4d4d", "#00ADEF"],
-                            ),
-                        ),
-                        order=alt.Order("Tipo:N", sort="descending"),
-                        tooltip=[
-                            "Cliente",
-                            "Factura",
-                            "Tipo",
-                            alt.Tooltip("Monto:Q", format="$,.0f"),
-                            alt.Tooltip("Saldo Pendiente:Q", format="$,.0f"),
-                        ],
+                if not df_cartera_facturas.empty:
+                    data_plot = df_cartera_facturas.melt(
+                        id_vars=["Etiqueta", "Saldo Pendiente", "Cliente", "Factura"],
+                        value_vars=["Deuda Original", "Abono Aplicado"],
+                        var_name="Tipo",
+                        value_name="Monto",
                     )
-                )
-                st.altair_chart(chart, use_container_width=True)
+                    chart = (
+                        alt.Chart(data_plot)
+                        .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+                        .encode(
+                            x=alt.X(
+                                "Etiqueta:N",
+                                title="Facturas Activas por Cliente",
+                                axis=alt.Axis(labelAngle=-45),
+                            ),
+                            y=alt.Y("Monto:Q", stack=None, title="Monto ($)"),
+                            color=alt.Color(
+                                "Tipo:N",
+                                scale=alt.Scale(
+                                    domain=["Deuda Original", "Abono Aplicado"],
+                                    range=["#ff4d4d", "#00ADEF"],
+                                ),
+                            ),
+                            order=alt.Order("Tipo:N", sort="descending"),
+                            tooltip=[
+                                "Cliente",
+                                "Factura",
+                                "Tipo",
+                                alt.Tooltip("Monto:Q", format="$,.0f"),
+                                alt.Tooltip("Saldo Pendiente:Q", format="$,.0f"),
+                            ],
+                        )
+                    )
+                    st.altair_chart(chart, use_container_width=True)
 
                 # Tabla de resumen debajo del gráfico
                 st.dataframe(
@@ -1328,6 +1330,130 @@ elif menu_seleccionado == "💰 Cartera y Abonos":
                     else:
                         st.error(msg)
 
+# 13. CONFIGURACIÓN DE SEGURIDAD Y CUENTA
+elif menu_seleccionado == "🔒 Seguridad y Cuenta":
+    st.title("🔒 Configuración de Seguridad - LIN - PRO X")
+    st.markdown("Administra las credenciales de acceso a tu panel empresarial.")
+    st.write("---")
+
+    # Tomamos el usuario real de la memoria del sistema
+    usuario_actual = st.session_state["usuario"]
+
+    try:
+        datos_cuenta = controller.obtener_datos_suscriptor(usuario_actual)
+    except:
+        datos_cuenta = None
+
+    col1, col2 = st.columns([1, 1.2])
+
+    with col1:
+        if datos_cuenta:
+            # Cálculo de días restantes
+            hoy = datetime.now().date()
+            dias_restantes = (datos_cuenta.fecha_vencimiento - hoy).days
+
+            # Tarjeta HTML/CSS idéntica a tu diseño
+            tarjeta_html = f"""
+                <div style="background: linear-gradient(135deg, #1c2b4a 0%, #152238 100%); 
+                            padding: 25px; 
+                            border-radius: 12px; 
+                            border-left: 6px solid #00b4d8;
+                            box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+                    <h4 style="color: #00b4d8; margin-top: 0; display: flex; align-items: center;">
+                        <span style="font-size: 1.5em; margin-right: 10px;">📋</span> Resumen de la Cuenta
+                    </h4>
+                    <p style="color: #e2e8f0; font-size: 1.05em; margin: 10px 0;">• <b>Usuario principal:</b> {datos_cuenta.usuario}</p>
+                    <p style="color: #e2e8f0; font-size: 1.05em; margin: 10px 0;">• <b>ID Empresarial:</b> {datos_cuenta.empresa_id}</p>
+                    <p style="color: #e2e8f0; font-size: 1.05em; margin: 10px 0;">• <b>Licencia Activa:</b> {datos_cuenta.plan}</p>
+                    <p style="color: #e2e8f0; font-size: 1.05em; margin: 10px 0;">• <b>Días Restantes:</b> {dias_restantes} días</p>
+                </div>
+                """
+            st.markdown(tarjeta_html, unsafe_allow_html=True)
+        else:
+            st.warning(
+                "⚠️ No se encontraron los datos de suscripción en la base de datos."
+            )
+
+    with col2:
+        st.markdown("### 🔑 Cambiar Contraseña")
+        with st.form("form_cambio_pw"):
+            pw_actual = st.text_input("Contraseña Actual", type="password")
+            pw_nueva = st.text_input("Nueva Contraseña Personal", type="password")
+            pw_conf = st.text_input("Confirmar Nueva Contraseña", type="password")
+
+            st.write("##")  # Espaciado
+            if st.form_submit_button(
+                "💾 Guardar Nueva Contraseña", use_container_width=True, type="primary"
+            ):
+                if not pw_actual or not pw_nueva or not pw_conf:
+                    st.warning("Todos los campos son obligatorios.")
+                elif pw_nueva != pw_conf:
+                    st.error("Las nuevas contraseñas no coinciden.")
+                elif len(pw_nueva) < 6:
+                    st.error("La nueva contraseña debe tener al menos 6 caracteres.")
+                else:
+                    exito, msg = controller.cambiar_password_suscriptor(
+                        usuario_actual, pw_actual, pw_nueva
+                    )
+                    if exito:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
+
+# ==========================================
+# 👑 PANEL SUPERADMIN SAAS (SOLO PARA EL DUEÑO)
+# ==========================================
+elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
+    st.title("👑 Panel Súper Administrador (SaaS)")
+    st.markdown("Desde aquí puedes aprovisionar y crear nuevos clientes en tu software.")
+    
+    with st.form("crear_empresa_form"):
+        st.subheader("🏢 Datos de la Nueva Empresa")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            nuevo_usuario = st.text_input("Usuario de acceso (Ej: cueros_express)")
+            nueva_empresa_id = st.text_input("ID de Empresa (Ej: CuerosExpress)")
+        with c2:
+            nuevo_password = st.text_input("Contraseña temporal", type="password")
+            nuevo_plan = st.selectbox("Plan de Suscripción", ["Plan Mensual", "Plan Semestral", "Plan Anual"])
+            
+        fecha_venc = st.date_input("Fecha de Vencimiento de la cuenta")
+        
+        st.markdown("---")
+        st.subheader("⚙️ Configuración del Catálogo")
+        # ESTE ES EL CHECKBOX MÁGICO QUE DECIDE ENTRE EL ESCENARIO A o B
+        usar_plantilla = st.checkbox("📦 Instalar catálogo predeterminado (Plantilla capilar con stock 0)")
+        st.info("💡 Si desmarcas esta opción, el cliente recibirá el software 100% en blanco (Ideal para otros sectores).")
+        
+        submit_crear = st.form_submit_button("🚀 Crear Empresa y Aprovisionar Sistema", type="primary")
+        
+        if submit_crear:
+            if nuevo_usuario and nuevo_password and nueva_empresa_id:
+                # PASO 1: Siempre creamos la empresa vacía primero (El usuario, la caja, etc.)
+                exito, msg = controller.registrar_nueva_empresa_vacia(
+                    usuario=nuevo_usuario,
+                    password=nuevo_password,
+                    plan=nuevo_plan,
+                    fecha_vencimiento=fecha_venc,
+                    empresa_id=nueva_empresa_id
+                )
+                
+                if exito:
+                    st.success(msg)
+                    # PASO 2: Si marcaste la casilla, llamamos al robot clonador
+                    if usar_plantilla:
+                        with st.spinner("⏳ Clonando catálogo plantilla (Insumos, Productos y Recetas)..."):
+                            exito_plan, msg_plan = controller.inicializar_empresa_desde_plantilla(nueva_empresa_id)
+                            if exito_plan:
+                                st.success("✅ " + msg_plan)
+                            else:
+                                st.error("⚠️ " + msg_plan)
+                else:
+                    st.error(msg)
+            else:
+                st.warning("⚠️ Por favor, llena los campos obligatorios (Usuario, Contraseña y Empresa ID).")
+
 # 14. PANTALLAS DE BIENVENIDA DE ALTO IMPACTO (HERO BANNERS)
 elif menu_seleccionado.startswith("---"):
     # Función de Código Limpio para generar Banners impactantes
@@ -1423,73 +1549,3 @@ elif menu_seleccionado.startswith("---"):
             "Has ingresado a una zona segura. Selecciona un módulo específico en el menú lateral izquierdo para comenzar a operar.",
             "#95a5a6",
         )  # Gris neutro
-
-# 13. CONFIGURACIÓN DE SEGURIDAD Y CUENTA
-elif menu_seleccionado == "🔒 Seguridad y Cuenta":
-    st.title("🔒 Configuración de Seguridad - LIN - PRO X")
-    st.markdown("Administra las credenciales de acceso a tu panel empresarial.")
-    st.write("---")
-
-    # Tomamos el usuario real de la memoria del sistema
-    usuario_actual = st.session_state["usuario"]
-
-    try:
-        datos_cuenta = controller.obtener_datos_suscriptor(usuario_actual)
-    except:
-        datos_cuenta = None
-
-    col1, col2 = st.columns([1, 1.2])
-
-    with col1:
-        if datos_cuenta:
-            # Cálculo de días restantes
-            hoy = datetime.now().date()
-            dias_restantes = (datos_cuenta.fecha_vencimiento - hoy).days
-
-            # Tarjeta HTML/CSS idéntica a tu diseño
-            tarjeta_html = f"""
-                <div style="background: linear-gradient(135deg, #1c2b4a 0%, #152238 100%); 
-                            padding: 25px; 
-                            border-radius: 12px; 
-                            border-left: 6px solid #00b4d8;
-                            box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
-                    <h4 style="color: #00b4d8; margin-top: 0; display: flex; align-items: center;">
-                        <span style="font-size: 1.5em; margin-right: 10px;">📋</span> Resumen de la Cuenta
-                    </h4>
-                    <p style="color: #e2e8f0; font-size: 1.05em; margin: 10px 0;">• <b>Usuario principal:</b> {datos_cuenta.usuario}</p>
-                    <p style="color: #e2e8f0; font-size: 1.05em; margin: 10px 0;">• <b>ID Empresarial:</b> {datos_cuenta.empresa_id}</p>
-                    <p style="color: #e2e8f0; font-size: 1.05em; margin: 10px 0;">• <b>Licencia Activa:</b> {datos_cuenta.plan}</p>
-                    <p style="color: #e2e8f0; font-size: 1.05em; margin: 10px 0;">• <b>Días Restantes:</b> {dias_restantes} días</p>
-                </div>
-                """
-            st.markdown(tarjeta_html, unsafe_allow_html=True)
-        else:
-            st.warning(
-                "⚠️ No se encontraron los datos de suscripción en la base de datos."
-            )
-
-    with col2:
-        st.markdown("### 🔑 Cambiar Contraseña")
-        with st.form("form_cambio_pw"):
-            pw_actual = st.text_input("Contraseña Actual", type="password")
-            pw_nueva = st.text_input("Nueva Contraseña Personal", type="password")
-            pw_conf = st.text_input("Confirmar Nueva Contraseña", type="password")
-
-            st.write("##")  # Espaciado
-            if st.form_submit_button(
-                "💾 Guardar Nueva Contraseña", use_container_width=True, type="primary"
-            ):
-                if not pw_actual or not pw_nueva or not pw_conf:
-                    st.warning("Todos los campos son obligatorios.")
-                elif pw_nueva != pw_conf:
-                    st.error("Las nuevas contraseñas no coinciden.")
-                elif len(pw_nueva) < 6:
-                    st.error("La nueva contraseña debe tener al menos 6 caracteres.")
-                else:
-                    exito, msg = controller.cambiar_password_suscriptor(
-                        usuario_actual, pw_actual, pw_nueva
-                    )
-                    if exito:
-                        st.success(msg)
-                    else:
-                        st.error(msg)
