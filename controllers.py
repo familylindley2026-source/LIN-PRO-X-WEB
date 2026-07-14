@@ -149,6 +149,24 @@ class SistemaController:
     def procesar_compra_mixta(self, proveedor_nombre, nro_orden, carrito, comprador):
         db = self.SessionFactory()
         try:
+            # === NUEVO: REGISTRAR PROVEEDOR SI NO EXISTE ===
+            nombre_prov_limpio = str(proveedor_nombre).strip().upper()
+            prov = (
+                db.query(Proveedor)
+                .filter_by(nombre=nombre_prov_limpio, empresa_id=self.empresa_id)
+                .first()
+            )
+
+            if not prov:
+                nuevo_prov = Proveedor(
+                    nombre=nombre_prov_limpio,
+                    nit=f"SN-{datetime.now().strftime('%H%M%S')}",
+                    empresa_id=self.empresa_id,
+                )
+                db.add(nuevo_prov)
+                db.flush()
+            # ===============================================
+
             for item in carrito:
                 if item["tipo"] == "Insumos":
                     insumo = (
@@ -171,7 +189,7 @@ class SistemaController:
                                 operacion="Entrada",
                                 cantidad=item["cant"],
                                 motivo=f"Compra Orden #{nro_orden}",
-                                involucrado=proveedor_nombre,
+                                involucrado=nombre_prov_limpio,
                                 empresa_id=self.empresa_id,
                             )
                         )
@@ -196,20 +214,42 @@ class SistemaController:
                                 operacion="Entrada",
                                 cantidad=item["cant"],
                                 motivo=f"Compra Lab/Terceros #{nro_orden}",
-                                involucrado=proveedor_nombre,
+                                involucrado=nombre_prov_limpio,
                                 empresa_id=self.empresa_id,
                             )
                         )
+            # ... (código anterior de la función procesar_compra_mixta)
+
             db.commit()
             total = sum(i["precio"] for i in carrito)
-            ticket = f"🏢 *LINDLEY CLOUD OS*\n📦 *COMPROBANTE DE INGRESO*\n----------------------------------------\n🧾 *Orden N°:* {nro_orden}\n📅 *Fecha:* {datetime.now().strftime('%Y-%m-%d %H:%M')}\n🏭 *Proveedor:* {proveedor_nombre}\n👤 *Comprador/Recibe:* {comprador}\n----------------------------------------\n"
+
+            # --- AQUÍ ESTÁ LA CORRECCIÓN: Construcción completa del ticket ---
+            ticket = f"🏢 *{self.empresa_id.replace('_', ' ').upper()}*\n"
+            ticket += f"📦 *COMPROBANTE DE INGRESO*\n"
+            ticket += f"----------------------------------------\n"
+            ticket += f"🧾 *Orden N°:* {nro_orden}\n"
+            ticket += f"📅 *Fecha:* {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+            ticket += f"🏭 *Proveedor:* {nombre_prov_limpio}\n"
+            ticket += f"👤 *Comprador/Recibe:* {comprador}\n"
+            ticket += f"----------------------------------------\n"
+
+            # Es vital este ciclo para que los productos aparezcan en el mensaje
             for item in carrito:
-                ticket += f"▪ {item['cant']:,.0f}x {item['nombre']}\n   Subtotal: $ {item['precio']:,.0f}\n"
-            ticket += f"----------------------------------------\n💰 *TOTAL INVERSIÓN: $ {total:,.0f}*\n"
-            return True, "Compra registrada con éxito.", ticket
+                ticket += f"▪ {item['cant']}x {item['nombre']}\n   Subtotal: $ {int(item['precio']):,.0f}\n"
+
+            ticket += f"----------------------------------------\n"
+            ticket += f"💰 *TOTAL INVERSIÓN: $ {int(total):,.0f}*\n"
+            # -----------------------------------------------------------------
+
+            # Generamos el PDF antes de retornar
+            pdf_bytes = self.generar_pdf_compra(
+                nro_orden, nombre_prov_limpio, comprador, carrito, total
+            )
+
+            return True, "Compra registrada con éxito.", ticket, pdf_bytes
         except Exception as e:
             db.rollback()
-            return False, f"Error: {str(e)}", ""
+            return False, f"Error: {str(e)}", "", None
         finally:
             db.close()
 
@@ -493,7 +533,7 @@ class SistemaController:
             return (
                 True,
                 "Movimiento registrado.",
-                f"\n📦 LINDLEY CLOUD OS\nSOPORTE: {datetime.now().strftime('%Y-%m-%d %H:%M')}\nOPERACIÓN: {operacion}\nCANT: {cantidad} | PROD: {prod.nombre}\n",
+                f"\n📦 IVONNE BERNATE OS\nSOPORTE: {datetime.now().strftime('%Y-%m-%d %H:%M')}\nOPERACIÓN: {operacion}\nCANT: {cantidad} | PROD: {prod.nombre}\n",
             )
         except Exception as e:
             db.rollback()
@@ -793,14 +833,20 @@ class SistemaController:
             ticket = f"✨ *IVONNE BERNATE PRODUCTOS CAPILARES*\n🧾 *FACTURA N°:* {nro}\n📅 *Fecha:* {datetime.now().strftime('%Y-%m-%d %H:%M')}\n👤 *Cliente:* {nombre_cliente}\n💼 *Atiende:* {vendedor}\n💳 *Medio de Pago:* {medio_pago}\n----------------------------------------\n"
             for item in carrito:
                 ticket += f"▪ {int(item['cant'])}x *{item['nombre']}*\n   $ {int(item['precio']):,.0f}  =>  $ {int(item['subtotal']):,.0f}\n"
+            # ... (código dentro de procesar_venta, justo antes del return)
             ticket += f"----------------------------------------\n💰 *TOTAL A PAGAR: $ {int(total_neto):,.0f}*\n"
+
+            # GENERAMOS EL PDF AQUÍ
             pdf_bytes = self.generar_pdf_venta(
                 nro, nombre_cliente, vendedor, medio_pago, carrito, total_neto
             )
+
             return True, f"Venta {nro} procesada.", ticket, pdf_bytes
+
         except Exception as e:
             db.rollback()
-            return False, str(e), ""
+            # Si hay un error, devolvemos 4 valores (el último es None)
+            return False, str(e), "", None
         finally:
             db.close()
 
@@ -1386,4 +1432,74 @@ class SistemaController:
 
         except Exception as e:
             print(f"Error generando PDF: {e}")
+            return None
+
+    def generar_pdf_compra(
+        self, nro_orden, proveedor_nombre, comprador, carrito, total
+    ):
+        """Genera un archivo PDF profesional para los comprobantes de ingreso."""
+        try:
+            pdf = FPDF(orientation="P", unit="mm", format="A4")
+            pdf.add_page()
+
+            # 1. ENCABEZADO DE LA EMPRESA
+            pdf.set_font("helvetica", "B", 18)
+            nombre_negocio = str(self.empresa_id).replace("_", " ").upper()
+            pdf.cell(0, 10, txt=nombre_negocio, ln=True, align="C")
+
+            pdf.set_font("helvetica", "", 10)
+            pdf.cell(0, 6, txt="Comprobante de Ingreso / Compra", ln=True, align="C")
+            pdf.ln(8)
+
+            # 2. DATOS DEL INGRESO
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(35, 6, txt="Orden Nro:", border=0)
+            pdf.set_font("helvetica", "", 10)
+            pdf.cell(65, 6, txt=nro_orden, ln=True)
+
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(35, 6, txt="Fecha:", border=0)
+            pdf.set_font("helvetica", "", 10)
+            pdf.cell(65, 6, txt=datetime.now().strftime("%Y-%m-%d %H:%M"), ln=True)
+
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(35, 6, txt="Proveedor:", border=0)
+            pdf.set_font("helvetica", "", 10)
+            pdf.cell(65, 6, txt=proveedor_nombre, ln=True)
+
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(35, 6, txt="Recibe:", border=0)
+            pdf.set_font("helvetica", "", 10)
+            pdf.cell(65, 6, txt=comprador, ln=True)
+
+            pdf.ln(10)
+
+            # 3. TABLA DE PRODUCTOS
+            pdf.set_fill_color(220, 220, 220)
+            pdf.set_font("helvetica", "B", 10)
+            pdf.cell(15, 8, txt="Cant", border=1, align="C", fill=True)
+            pdf.cell(105, 8, txt="Item Ingresado", border=1, align="C", fill=True)
+            pdf.cell(70, 8, txt="Valor Total", border=1, align="C", fill=True)
+            pdf.ln()
+
+            # 4. FILAS DEL CARRITO
+            pdf.set_font("helvetica", "", 10)
+            for item in carrito:
+                pdf.cell(15, 8, txt=str(item["cant"]), border=1, align="C")
+                pdf.cell(105, 8, txt=item["nombre"][:50], border=1, align="L")
+                pdf.cell(
+                    70, 8, txt=f"$ {int(item['precio']):,.0f}", border=1, align="C"
+                )
+                pdf.ln()
+
+            # 5. TOTAL
+            pdf.ln(5)
+            pdf.set_font("helvetica", "B", 12)
+            pdf.cell(120, 10, txt="TOTAL INVERSIÓN:", align="R")
+            pdf.cell(70, 10, txt=f"$ {int(total):,.0f}", border=1, align="C")
+
+            return bytes(pdf.output())
+
+        except Exception as e:
+            print(f"Error generando PDF compra: {e}")
             return None

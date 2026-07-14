@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import urllib.parse
 import plotly.express as px
 import extra_streamlit_components as stx  # <-- LIBRERÍA DE COOKIES
+import pytz
 
 # 1. CONFIGURACIÓN DE PÁGINA (Debe ir antes de cualquier otro comando de Streamlit)
 st.set_page_config(page_title="LIN-PRO X WEB", page_icon="🏭", layout="wide")
@@ -95,6 +96,26 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
+
+
+# --- FUNCIÓN GLOBAL DE FORMATO COLOMBIANO ---
+def formato_co(numero, es_moneda=False, decimales=0):
+    """
+    Convierte cualquier número al formato de Colombia: 1.500,50
+    """
+    if numero is None:
+        return "$ 0" if es_moneda else "0"
+
+    if decimales == 0:
+        texto = f"{int(numero):,.0f}".replace(",", ".")
+    else:
+        texto = (
+            f"{numero:,.{decimales}f}".replace(",", "X")
+            .replace(".", ",")
+            .replace("X", ".")
+        )
+
+    return f"$ {texto}" if es_moneda else texto
 
 
 # --- FUNCIÓN MAESTRA PARA TABLAS FULL-WIDTH Y ALINEACIÓN PERFECTA ---
@@ -691,6 +712,15 @@ elif menu_seleccionado == "🛒 Punto de Venta":
         st.markdown("### 🛒 Detalle de Facturación")
         total_neto = sum(i["subtotal"] for i in st.session_state.carrito)
 
+        # --- ENCABEZADOS AGREGADOS ---
+        h1, h2, h3, h4, h5 = st.columns([4, 1.5, 2, 2, 0.5])
+        h1.markdown("**PRODUCTO**")
+        h2.markdown("**CANTIDAD**")
+        h3.markdown("**VALOR UNITARIO**")
+        h4.markdown("**VALOR TOTAL**")
+        h5.markdown("**🗑️**")
+        st.markdown("---")
+
         for idx, item in enumerate(st.session_state.carrito):
             c1, c2, c3, c4, c5 = st.columns([4, 1, 1.5, 1.5, 0.5])
             c1.write(item["nombre"])
@@ -799,7 +829,6 @@ elif menu_seleccionado == "📦 Entradas (Compras)":
     st.title("📦 Registro de Pedidos y Entradas")
 
     # --- AUTO-NUMERACIÓN ---
-    # Llamamos a tu función original para obtener el próximo número IB-XXX
     try:
         nro_sugerido = controller.generar_nro_orden_compra()
     except:
@@ -810,11 +839,21 @@ elif menu_seleccionado == "📦 Entradas (Compras)":
     proveedores = controller.obtener_proveedores()
 
     with col_prov:
-        proveedor_sel = st.selectbox(
-            "Proveedor", [p.nombre for p in proveedores] if proveedores else ["S/N"]
-        )
+        # 1. Creamos una lista con los proveedores existentes + la opción de crear uno nuevo
+        nombres_provs = [p.nombre for p in proveedores] if proveedores else []
+        opciones_provs = nombres_provs + ["➕ OTRO (Escribir Nuevo)"]
+
+        sel_prov = st.selectbox("Seleccionar Proveedor", opciones_provs, key="sel_prov")
+
+        # 🛑 MAGIA: Si eligen crear uno nuevo, mostramos un campo de texto libre que NO se borra
+        if sel_prov == "➕ OTRO (Escribir Nuevo)":
+            proveedor_sel = st.text_input(
+                "Escribe el Nombre del Proveedor *", key="input_nuevo_prov"
+            )
+        else:
+            proveedor_sel = sel_prov
+
     with col_doc:
-        # Aquí inyectamos el número sugerido por defecto
         nro_factura = st.text_input("N° Factura / Orden", value=nro_sugerido)
     with col_comp:
         comprador_sel = st.selectbox("Comprador", ["Ivonne Bernate", "Admin", "Otro"])
@@ -823,32 +862,46 @@ elif menu_seleccionado == "📦 Entradas (Compras)":
         "Tipo de Catálogo:", ["Insumos", "Productos Terminados"], horizontal=True
     )
 
-    col_ins, col_c, col_p, col_btn = st.columns([4, 1.5, 1.5, 1.5])
-    with col_ins:
-        if tipo_compra == "Insumos":
-            opc = [
-                f"{i.id} - {i.nombre} ({i.unidad_medida})"
-                for i in controller.obtener_insumos()
-            ]
-        else:
-            opc = [
-                f"{p.id} - {p.nombre} ({p.presentacion})"
-                for p in controller.obtener_productos_terminados()
-            ]
-        item_sel = st.selectbox("Buscar Item", opc if opc else ["Sin registros"])
+    # Envolvemos SOLO la fila de añadir en un mini-formulario limpiador
+    with st.form("form_add_item", clear_on_submit=True):
+        col_ins, col_c, col_p, col_btn = st.columns([4, 1.5, 1.5, 1.5])
 
-    with col_c:
-        cant_compra = st.number_input("Cantidad", min_value=0.1, value=1.0)
-    with col_p:
-        costo_total = st.number_input("Total Factura ($)", min_value=0.0, step=1000.0)
-    with col_btn:
-        st.write("##")
-        if st.button("➕ Añadir"):
+        with col_ins:
+            if tipo_compra == "Insumos":
+                opc = [
+                    f"{i.id} - {i.nombre} ({i.unidad_medida})"
+                    for i in controller.obtener_insumos()
+                ]
+            else:
+                opc = [
+                    f"{p.id} - {p.nombre} ({p.presentacion})"
+                    for p in controller.obtener_productos_terminados()
+                ]
+            item_sel = st.selectbox("Buscar Item", opc if opc else ["Sin registros"])
+
+        with col_c:
+            # Eliminamos los 'key' problemáticos y dejamos los valores por defecto
+            cant_compra = st.number_input("Cantidad", min_value=0.1, value=1.0)
+
+        with col_p:
+            # El precio iniciará en 0.0 y volverá a 0.0 cada vez que se añada algo
+            costo_total = st.number_input(
+                "Valor TOTAL Factura ($)", min_value=0.0, step=1000.0, value=0.0
+            )
+
+        with col_btn:
+            st.write("##")
+            # Cambiamos st.button por st.form_submit_button
+            submit_add = st.form_submit_button("➕ Añadir", use_container_width=True)
+
+        if submit_add:
             if "Sin registros" not in item_sel and costo_total > 0:
                 id_item = int(item_sel.split(" - ")[0])
                 nombre_item = item_sel.split(" - ")[1]
+
                 if "carrito_compras" not in st.session_state:
                     st.session_state.carrito_compras = []
+
                 st.session_state.carrito_compras.append(
                     {
                         "id": id_item,
@@ -858,39 +911,94 @@ elif menu_seleccionado == "📦 Entradas (Compras)":
                         "precio": costo_total,
                     }
                 )
+                # Al hacer rerun, clear_on_submit hará la magia de vaciar los campos automáticamente
                 st.rerun()
 
+            elif costo_total <= 0:
+                st.warning("El Valor Total debe ser mayor a 0.")
+
+    # =======================================================
+    # RENDERING DEL CARRITO CON ENCABEZADOS Y CÁLCULOS
+    # =======================================================
     if "carrito_compras" in st.session_state and st.session_state.carrito_compras:
+        st.markdown("### 🛒 Detalle de Entradas")
+
+        # --- ENCABEZADOS AÑADIDOS ---
+        h1, h2, h3, h4, h5 = st.columns([4, 1.5, 2, 2, 0.5])
+        h1.markdown("**PRODUCTO**")
+        h2.markdown("**CANTIDAD**")
+        h3.markdown("**VALOR UNITARIO**")
+        h4.markdown("**VALOR TOTAL**")
+        h5.markdown("**🗑️**")
         st.markdown("---")
+
         tot = sum(i["precio"] for i in st.session_state.carrito_compras)
+
+        # Iteramos los productos
         for idx, i in enumerate(st.session_state.carrito_compras):
-            c1, c2, c3, c4 = st.columns([4, 1.5, 1.5, 0.5])
+            c1, c2, c3, c4, c5 = st.columns([4, 1.5, 2, 2, 0.5])
+
+            # Calculamos el valor unitario (Total / Cantidad) para mostrarlo
+            v_unitario = i["precio"] / i["cant"] if i["cant"] > 0 else 0
+
             c1.write(f"[{i['tipo'][:3]}] {i['nombre']}")
             c2.write(f"{i['cant']}")
-            c3.write(f"$ {int(i['precio']):,.0f}")
-            if c4.button("🗑️", key=f"del_c_{idx}"):
+            c3.write(formato_co(v_unitario, es_moneda=True))  # Aplica formato $ X.XXX
+            c4.write(formato_co(i["precio"], es_moneda=True))  # Aplica formato $ X.XXX
+
+            if c5.button("❌", key=f"del_c_{idx}"):
                 st.session_state.carrito_compras.pop(idx)
                 st.rerun()
 
-        st.markdown(f"### 💰 Total: $ {int(tot):,.0f}")
+        st.markdown("---")
+        st.markdown(f"### 💰 GRAN TOTAL: {formato_co(tot, es_moneda=True)}")
+
         if st.button("💾 Registrar Entrada", type="primary"):
             if not nro_factura:
                 st.error("Falta N° Factura")
+            elif not proveedor_sel:
+                st.error("Falta el Nombre del Proveedor")
             else:
-                exito, msg, ticket = controller.procesar_compra_mixta(
+                # Ahora recibimos 4 valores, incluyendo los bytes del PDF
+                exito, msg, ticket, pdf_bytes = controller.procesar_compra_mixta(
                     proveedor_sel,
                     nro_factura,
                     st.session_state.carrito_compras,
                     comprador_sel,
                 )
+
                 if exito:
                     st.success(msg)
+
+                    # --- BOTONES DE WHATSAPP Y PDF ---
+                    c_wa, c_pdf = st.columns(2)
+
+                    with c_wa:
+                        url_wa = f"https://wa.me/{NUMERO_WHATSAPP}?text={urllib.parse.quote(ticket)}"
+                        st.link_button(
+                            "📲 Compartir Comprobante por WhatsApp",
+                            url_wa,
+                            use_container_width=True,
+                        )
+
+                    with c_pdf:
+                        if pdf_bytes:
+                            st.download_button(
+                                label="📄 Descargar Comprobante PDF",
+                                data=pdf_bytes,
+                                file_name=f"Ingreso_{nro_factura}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True,
+                                type="primary",
+                            )
+
+                    # Limpiamos el carrito SOLO DESPUÉS de mostrar los botones
                     st.session_state.carrito_compras = []
                 else:
                     st.error(msg)
 
     # ==========================================
-    # 🗑️ ZONA DE ELIMINACIÓN DE COMPRAS (Desplegable)
+    # 🗑️ ZONA DE ELIMINACIÓN DE COMPRAS
     # ==========================================
     st.write("---")
     st.markdown("### 🗑️ Zona de Seguridad: Eliminar Compra")
@@ -898,7 +1006,6 @@ elif menu_seleccionado == "📦 Entradas (Compras)":
         "Si registraste una compra por error, selecciónala de la lista. Se descontará el stock y se borrará del sistema."
     )
 
-    # Obtenemos la lista de compras registradas
     lista_compras_db = controller.obtener_lista_compras()
 
     with st.form("form_eliminar_compra"):
@@ -914,13 +1021,13 @@ elif menu_seleccionado == "📦 Entradas (Compras)":
         submit_eliminar = st.form_submit_button(
             "Eliminar Compra Permanentemente", type="primary"
         )
-        # Zona de Seguridad: Eliminar Compra
+
         if submit_eliminar:
             if compra_a_eliminar != "Seleccione una compra...":
                 exito, msg = controller.eliminar_compra_erronea(compra_a_eliminar)
                 if exito:
                     st.success(msg)
-                    st.rerun()  # Refresca para limpiar la lista
+                    st.rerun()
                 else:
                     st.error(msg)
             else:
@@ -954,9 +1061,16 @@ elif menu_seleccionado == "🧪 Producción y Fórmulas":
             c120 = st.number_input("120ml", min_value=0, value=0)
         with col5:
             c60 = st.number_input("60ml", min_value=0, value=0)
+        with col5:
+            c30 = st.number_input("30ml", min_value=0, value=0)
 
         volumen_usado = (
-            (c1000 * 1000) + (c500 * 500) + (c250 * 250) + (c120 * 120) + (c60 * 60)
+            (c1000 * 1000)
+            + (c500 * 500)
+            + (c250 * 250)
+            + (c120 * 120)
+            + (c60 * 60)
+            + (c30 * 30)
         )
         if volumen_usado > volumen_total:
             st.error(
@@ -971,6 +1085,7 @@ elif menu_seleccionado == "🧪 Producción y Fórmulas":
                     "250ml": c250,
                     "120ml": c120,
                     "60ml": c60,
+                    "30ml": c30,
                 }
                 exito, msg = controller.procesar_fraccionamiento_lote(
                     receta_sel, volumen_total, envases
@@ -1040,8 +1155,12 @@ elif menu_seleccionado == "🏭 Inventario Maestro":
                 "Nombre": i.nombre,
                 "Categoría": i.categoria,
                 "Und": i.unidad_medida,
-                "Stock": f"{i.stock_actual:,.2f}",  # <--- FORMATO CORREGIDO AQUÍ
-                "Costo": f"$ {int(i.costo_promedio):,.0f}",
+                # TRUCO FORMATO LATINO: Intercambia comas por puntos y puntos por comas
+                "Stock": f"{i.stock_actual:,.2f}".replace(",", "X")
+                .replace(".", ",")
+                .replace("X", "."),
+                # También le ponemos punto de miles al costo
+                "Costo": f"$ {int(i.costo_promedio):,.0f}".replace(",", "."),
                 "Proveedor": i.proveedor.nombre if i.proveedor else "S/N",
             }
             for i in insumos
@@ -1382,7 +1501,8 @@ elif menu_seleccionado == "🔒 Seguridad y Cuenta":
     with col1:
         if datos_cuenta:
             # Cálculo de días restantes
-            hoy = datetime.now().date()
+            zona_colombia = pytz.timezone("America/Bogota")
+            hoy = datetime.now(zona_colombia).date()
             dias_restantes = (datos_cuenta.fecha_vencimiento - hoy).days
 
             # Tarjeta HTML/CSS idéntica a tu diseño

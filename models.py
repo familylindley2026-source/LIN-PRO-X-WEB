@@ -1,4 +1,3 @@
-from datetime import datetime
 from sqlalchemy import (
     Column,
     Integer,
@@ -12,10 +11,13 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 from database import Base
-
+from datetime import datetime
+import pytz # <-- IMPORTACIÓN NUEVA
 
 def get_local_time():
-    return datetime.now()
+    # Obligamos al sistema a usar la hora de Colombia
+    zona_colombia = pytz.timezone('America/Bogota')
+    return datetime.now(zona_colombia)
 
 
 class Proveedor(Base):
