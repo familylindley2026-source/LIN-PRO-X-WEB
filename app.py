@@ -138,7 +138,9 @@ with st.sidebar.expander("🚀 PLANES DE SUSCRIPCIÓN LIN-PRO X WEB"):
 💎 4. Plan Anual (Best Seller) • Precio: *199.000 COP** / año
 • 🔥 *Ahorras: 101.000 COP (¡4 meses GRATIS!) • (Aprox. $49.75 USD)
     """)
-    st.markdown(f"[🟢 ¿Quieres renovar o cambiar tu plan? Pulsa aquí para enviar un mensaje de WhatsApp 🟢](https://wa.me/{NUMERO_WHATSAPP})")
+    st.markdown(
+        f"[🟢 ¿Quieres renovar o cambiar tu plan? Pulsa aquí para enviar un mensaje de WhatsApp 🟢](https://wa.me/{NUMERO_WHATSAPP})"
+    )
 
 st.sidebar.markdown("---")
 
@@ -1038,7 +1040,7 @@ elif menu_seleccionado == "🏭 Inventario Maestro":
                 "Nombre": i.nombre,
                 "Categoría": i.categoria,
                 "Und": i.unidad_medida,
-                "Stock": i.stock_actual,
+                "Stock": f"{i.stock_actual:,.2f}",  # <--- FORMATO CORREGIDO AQUÍ
                 "Costo": f"$ {int(i.costo_promedio):,.0f}",
                 "Proveedor": i.proveedor.nombre if i.proveedor else "S/N",
             }
@@ -1276,7 +1278,7 @@ elif menu_seleccionado == "🧴 Catálogo Productos":
         renderizar_tabla_estilizada(data_cat, "Nombre")
 
     with tab2:
-        with st.form("f_cat", depth_check=None, clear_on_submit=True):
+        with st.form("f_cat", clear_on_submit=True):
             st.info(
                 "La creación de producto aquí lo registra automáticamente como Producto Terminado para inventario."
             )
@@ -1450,29 +1452,26 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
             nueva_empresa_id = st.text_input("ID de Empresa (Ej: CuerosExpress)")
         with c2:
             nuevo_password = st.text_input("Contraseña temporal", type="password")
+            # Agregamos una opción vacía para que se vea limpio al reiniciar
             nuevo_plan = st.selectbox(
                 "Plan de Suscripción",
-                ["Plan Personal (para distribuidores)", "Plan Trimestral (Constructores)", "Plan Semestral (para líderes)", "Plan Anual (Más vendido)"],
+                [
+                    "Seleccione un plan...",
+                    "Plan Personal (para distribuidores)",
+                    "Plan Trimestral (Constructores)",
+                    "Plan Semestral (para líderes)",
+                    "Plan Anual (Más vendido)",
+                ],
             )
 
-        # LÓGICA DE AUTOCÁLCULO DE FECHAS SEGÚN EL PLAN
-        hoy = datetime.now().date()
-        if nuevo_plan == "Plan Personal (para distribuidores)":
-            dias_sumar = 30
-        elif nuevo_plan == "Plan Trimestral (Constructores)":
-            dias_sumar = 90
-        elif nuevo_plan == "Plan Semestral (para líderes)":
-            dias_sumar = 180
-        else:  # Plan Anual (Más vendido)
-            dias_sumar = 365
-
-        fecha_calculada = hoy + timedelta(days=dias_sumar)
-
-        # METER LA FECHA EN UNA COLUMNA LA HACE MÁS CORTA VISUALMENTE
         c3, c4 = st.columns(2)
         with c3:
-            fecha_venc = st.date_input(
-                "Fecha de Vencimiento de la cuenta", value=fecha_calculada
+            # Cambiamos a Fecha de Activación para que siempre empiece limpia en "Hoy"
+            fecha_inicio = st.date_input(
+                "Fecha de Activación", value=datetime.now().date()
+            )
+            st.caption(
+                "El sistema calculará el vencimiento automáticamente según el plan."
             )
 
         st.markdown("---")
@@ -1489,12 +1488,32 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
         )
 
         if submit_crear:
-            if nuevo_usuario and nuevo_password and nueva_empresa_id:
+            # Validamos que haya llenado todo, incluyendo seleccionar un plan válido
+            if (
+                nuevo_usuario
+                and nuevo_password
+                and nueva_empresa_id
+                and nuevo_plan != "Seleccione un plan..."
+            ):
+                # LÓGICA DE AUTOCÁLCULO DE FECHAS SEGÚN EL PLAN
+                hoy = datetime.now().date()
+                if nuevo_plan == "Plan Personal (para distribuidores)":
+                    dias_sumar = 30
+                elif nuevo_plan == "Plan Trimestral (Constructores)":
+                    dias_sumar = 90
+                elif nuevo_plan == "Plan Semestral (para líderes)":
+                    dias_sumar = 180
+                else:  # Plan Anual (Más vendido)
+                    dias_sumar = 365
+
+                # Calculamos la fecha de vencimiento final sumándole los días a la fecha de activación
+                fecha_venc_final = fecha_inicio + timedelta(days=dias_sumar)
+
                 exito, msg = controller.registrar_nueva_empresa_vacia(
                     usuario=nuevo_usuario,
                     password=nuevo_password,
                     plan=nuevo_plan,
-                    fecha_vencimiento=fecha_venc,
+                    fecha_vencimiento=fecha_venc_final,
                     empresa_id=nueva_empresa_id,
                 )
 
@@ -1517,7 +1536,7 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
                     st.error(msg)
             else:
                 st.warning(
-                    "⚠️ Por favor, llena los campos obligatorios (Usuario, Contraseña y Empresa ID)."
+                    "⚠️ Por favor, llena todos los campos obligatorios y selecciona un plan."
                 )
 
 # 14. PANTALLAS DE BIENVENIDA DE ALTO IMPACTO (HERO BANNERS)
