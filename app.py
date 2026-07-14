@@ -127,12 +127,18 @@ st.sidebar.success("⏳ **Tiempo restante: 13 días**")
 
 with st.sidebar.expander("🚀 PLANES DE SUSCRIPCIÓN LIN-PRO X WEB"):
     st.markdown("""
-    🥇 **1. Plan Personal** • 25.000 COP / mes
-    🥈 **2. Plan Trimestral** • 65.000 COP / trim
-    🥉 **3. Plan Semestral** • 120.000 COP / sem
-    💎 **4. Plan Anual** • 199.000 COP / año
+    🥉 1. Plan Personal (para distribuidores) • Precio: * 25.000 COP** / mes
+• *(Aprox.  6.25 USD)
+
+🥈 2. Plan Trimestral (Constructores) • Precio: *65.000 COP** / trimestre
+• 🎁 *Ahorras: 10.000 COP (13% dcto) • (Aprox. $16.25 USD)
+
+🥇 Plan Semestral (para líderes) • Precio: * 30.000 COP (descuento del 20%) • (Aprox. 30 USD)
+
+💎 4. Plan Anual (Best Seller) • Precio: *199.000 COP** / año
+• 🔥 *Ahorras: 101.000 COP (¡4 meses GRATIS!) • (Aprox. $49.75 USD)
     """)
-    st.markdown(f"[🟢 Renovar vía WhatsApp](https://wa.me/{NUMERO_WHATSAPP})")
+    st.markdown(f"[🟢 ¿Quieres renovar o cambiar tu plan? 🟢 Pulsa aquí para enviar un mensaje de WhatsApp](https://wa.me/{NUMERO_WHATSAPP})")
 
 st.sidebar.markdown("---")
 
@@ -1451,13 +1457,13 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
 
         # LÓGICA DE AUTOCÁLCULO DE FECHAS SEGÚN EL PLAN
         hoy = datetime.now().date()
-        if nuevo_plan == "Plan Mensual":
+        if nuevo_plan == "Plan Personal (para distribuidores) ":
             dias_sumar = 30
-        elif nuevo_plan == "Plan Trimestral":
+        elif nuevo_plan == "Plan Trimestral (Constructores)":
             dias_sumar = 90
-        elif nuevo_plan == "Plan Semestral":
+        elif nuevo_plan == "Plan Semestral (para líderes)":
             dias_sumar = 180
-        else:  # Plan Anual
+        else:  # Plan Anual (Más vendido)
             dias_sumar = 365
 
         fecha_calculada = hoy + timedelta(days=dias_sumar)
