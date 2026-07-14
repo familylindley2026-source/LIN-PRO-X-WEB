@@ -1405,46 +1405,79 @@ elif menu_seleccionado == "🔒 Seguridad y Cuenta":
 # ==========================================
 elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
     st.title("👑 Panel Súper Administrador (SaaS)")
-    st.markdown("Desde aquí puedes aprovisionar y crear nuevos clientes en tu software.")
-    
-    with st.form("crear_empresa_form"):
+    st.markdown(
+        "Desde aquí puedes aprovisionar y crear nuevos clientes en tu software."
+    )
+
+    # LA MAGIA: clear_on_submit=True vacía las casillas automáticamente al terminar
+    with st.form("crear_empresa_form", clear_on_submit=True):
         st.subheader("🏢 Datos de la Nueva Empresa")
-        
+
         c1, c2 = st.columns(2)
         with c1:
             nuevo_usuario = st.text_input("Usuario de acceso (Ej: cueros_express)")
             nueva_empresa_id = st.text_input("ID de Empresa (Ej: CuerosExpress)")
         with c2:
             nuevo_password = st.text_input("Contraseña temporal", type="password")
-            nuevo_plan = st.selectbox("Plan de Suscripción", ["Plan Mensual", "Plan Semestral", "Plan Anual"])
-            
-        fecha_venc = st.date_input("Fecha de Vencimiento de la cuenta")
-        
+            nuevo_plan = st.selectbox(
+                "Plan de Suscripción",
+                ["Plan Mensual", "Plan Trimestral", "Plan Semestral", "Plan Anual"],
+            )
+
+        # LÓGICA DE AUTOCÁLCULO DE FECHAS SEGÚN EL PLAN
+        hoy = datetime.now().date()
+        if nuevo_plan == "Plan Mensual":
+            dias_sumar = 30
+        elif nuevo_plan == "Plan Trimestral":
+            dias_sumar = 90
+        elif nuevo_plan == "Plan Semestral":
+            dias_sumar = 180
+        else:  # Plan Anual
+            dias_sumar = 365
+
+        fecha_calculada = hoy + timedelta(days=dias_sumar)
+
+        # METER LA FECHA EN UNA COLUMNA LA HACE MÁS CORTA VISUALMENTE
+        c3, c4 = st.columns(2)
+        with c3:
+            fecha_venc = st.date_input(
+                "Fecha de Vencimiento de la cuenta", value=fecha_calculada
+            )
+
         st.markdown("---")
         st.subheader("⚙️ Configuración del Catálogo")
-        # ESTE ES EL CHECKBOX MÁGICO QUE DECIDE ENTRE EL ESCENARIO A o B
-        usar_plantilla = st.checkbox("📦 Instalar catálogo predeterminado (Plantilla capilar con stock 0)")
-        st.info("💡 Si desmarcas esta opción, el cliente recibirá el software 100% en blanco (Ideal para otros sectores).")
-        
-        submit_crear = st.form_submit_button("🚀 Crear Empresa y Aprovisionar Sistema", type="primary")
-        
+        usar_plantilla = st.checkbox(
+            "📦 Instalar catálogo predeterminado (Plantilla capilar con stock 0)"
+        )
+        st.info(
+            "💡 Si desmarcas esta opción, el cliente recibirá el software 100% en blanco (Ideal para otros sectores)."
+        )
+
+        submit_crear = st.form_submit_button(
+            "🚀 Crear Empresa y Aprovisionar Sistema", type="primary"
+        )
+
         if submit_crear:
             if nuevo_usuario and nuevo_password and nueva_empresa_id:
-                # PASO 1: Siempre creamos la empresa vacía primero (El usuario, la caja, etc.)
                 exito, msg = controller.registrar_nueva_empresa_vacia(
                     usuario=nuevo_usuario,
                     password=nuevo_password,
                     plan=nuevo_plan,
                     fecha_vencimiento=fecha_venc,
-                    empresa_id=nueva_empresa_id
+                    empresa_id=nueva_empresa_id,
                 )
-                
+
                 if exito:
                     st.success(msg)
-                    # PASO 2: Si marcaste la casilla, llamamos al robot clonador
                     if usar_plantilla:
-                        with st.spinner("⏳ Clonando catálogo plantilla (Insumos, Productos y Recetas)..."):
-                            exito_plan, msg_plan = controller.inicializar_empresa_desde_plantilla(nueva_empresa_id)
+                        with st.spinner(
+                            "⏳ Clonando catálogo plantilla (Insumos, Productos y Recetas)..."
+                        ):
+                            exito_plan, msg_plan = (
+                                controller.inicializar_empresa_desde_plantilla(
+                                    nueva_empresa_id
+                                )
+                            )
                             if exito_plan:
                                 st.success("✅ " + msg_plan)
                             else:
@@ -1452,7 +1485,9 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
                 else:
                     st.error(msg)
             else:
-                st.warning("⚠️ Por favor, llena los campos obligatorios (Usuario, Contraseña y Empresa ID).")
+                st.warning(
+                    "⚠️ Por favor, llena los campos obligatorios (Usuario, Contraseña y Empresa ID)."
+                )
 
 # 14. PANTALLAS DE BIENVENIDA DE ALTO IMPACTO (HERO BANNERS)
 elif menu_seleccionado.startswith("---"):

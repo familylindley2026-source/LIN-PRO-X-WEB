@@ -1138,13 +1138,10 @@ class SistemaController:
     def registrar_nueva_empresa_vacia(
         self, usuario, password, plan, fecha_vencimiento, empresa_id
     ):
-        """
-        Crea un nuevo cliente (SaaS) con base de datos limpia.
-        Inicializa los registros mínimos requeridos para que el POS funcione desde el segundo uno.
-        """
+        """Crea un nuevo cliente (SaaS) con base de datos limpia."""
         db = self.SessionFactory()
         try:
-            # 1. Verificar si el usuario ya existe para evitar duplicados
+            # 1. Verificar si el usuario ya existe
             existe_usuario = (
                 db.query(Suscriptor).filter_by(usuario=usuario.strip()).first()
             )
@@ -1154,17 +1151,27 @@ class SistemaController:
                     "❌ El nombre de usuario ya está registrado en el sistema.",
                 )
 
-            # 2. Crear el perfil de Suscriptor (Acceso al Software)
+            # 2. Verificar si el ID de empresa ya existe (NUEVO SEGURO)
+            existe_empresa = (
+                db.query(Suscriptor).filter_by(empresa_id=empresa_id.strip()).first()
+            )
+            if existe_empresa:
+                return (
+                    False,
+                    f"❌ El ID de empresa '{empresa_id}' ya está en uso. Usa uno diferente.",
+                )
+
+            # 3. Crear el perfil de Suscriptor
             nuevo_suscriptor = Suscriptor(
                 usuario=usuario.strip(),
                 password=password.strip(),
-                fecha_vencimiento=fecha_vencimiento,  # Objeto datetime.date o string 'YYYY-MM-DD'
+                fecha_vencimiento=fecha_vencimiento,
                 plan=plan,
                 empresa_id=empresa_id.strip(),
             )
             db.add(nuevo_suscriptor)
 
-            # 3. Registrar "Consumidor Final" por defecto para sus ventas rápidas
+            # 4. Registrar "Consumidor Final" por defecto
             cliente_defecto = Cliente(
                 nombre="Consumidor Final",
                 telefono="0000000000",
@@ -1177,7 +1184,7 @@ class SistemaController:
             )
             db.add(cliente_defecto)
 
-            # 4. Registrar un Asesor/Vendedor inicial por defecto
+            # 5. Registrar un Asesor/Vendedor inicial por defecto
             asesor_defecto = Asesor(
                 nombre="ADMINISTRADOR",
                 telefono="0000000000",
@@ -1186,7 +1193,7 @@ class SistemaController:
             )
             db.add(asesor_defecto)
 
-            # 5. Crear apertura de caja inicial en $0 para que no falle el flujo de dinero
+            # 6. Crear apertura de caja inicial en $0
             caja_defecto = ControlCaja(
                 monto_apertura=0.0,
                 ingresos=0.0,
