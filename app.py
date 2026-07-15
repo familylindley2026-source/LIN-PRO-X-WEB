@@ -19,6 +19,7 @@ if "controller" not in st.session_state:
     st.session_state.controller = SistemaController(SessionLocal)
 controller = st.session_state.controller
 
+
 # 🌟 ESTA ES LA LÍNEA MÁGICA QUE DEBES AGREGAR:
 if st.session_state.get("autenticado", False):
     controller.empresa_id = st.session_state["empresa_id"]
@@ -1610,31 +1611,7 @@ elif menu_seleccionado == "🔒 Seguridad y Cuenta":
                     else:
                         st.error(msg)
 
-    # --- PESTAÑA B: EL BOTÓN DEL PÁNICO ---
-    with tab_reset:
-        st.markdown("#### Empezar desde cero")
-        st.error(
-            "⚠️ **ADVERTENCIA:** Esto borrará **TODOS** los insumos, productos, recetas, compras y ventas de tu empresa."
-        )
-
-        confirmar_borrado = st.checkbox(
-            "Entiendo que perderé toda mi información comercial."
-        )
-
-        if confirmar_borrado:
-            if st.button(
-                "🗑️ BORRAR TODA MI BASE DE DATOS",
-                type="primary",
-                use_container_width=True,
-            ):
-                with st.spinner("Eliminando registros..."):
-                    exito, msg = controller.resetear_empresa_completa()
-                    if exito:
-                        st.success(msg)
-                        st.rerun()
-                    else:
-                        st.error(msg)
-
+    
     # --- PESTAÑA C: EL BOTÓN DEL PÁNICO ---
     with tab_reset:
         st.markdown("#### 3. Empezar desde cero")
