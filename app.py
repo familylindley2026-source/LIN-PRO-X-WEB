@@ -628,6 +628,29 @@ if menu_seleccionado == "📊 Dashboard":
 elif menu_seleccionado == "🛒 Punto de Venta":
     st.title("🛒 Terminal de Ventas POS")
 
+    # ==========================================
+    # 🛠️ BOTÓN MÁGICO TEMPORAL (Borrar luego de usar)
+    # ==========================================
+    from sqlalchemy import text
+
+    if st.button("🛠️ Arreglar Base de Datos SaaS (Clic 1 vez)"):
+        db_fix = controller.SessionFactory()
+        try:
+            # Esta orden destruye el candado que bloquea las facturas repetidas
+            db_fix.execute(
+                text(
+                    "ALTER TABLE ventas DROP CONSTRAINT IF EXISTS ventas_factura_nro_key;"
+                )
+            )
+            db_fix.commit()
+            st.success("¡Magia hecha! El candado ha sido eliminado. Ya puedes vender.")
+        except Exception as e:
+            db_fix.rollback()
+            st.error(f"Error: {e}")
+        finally:
+            db_fix.close()
+    st.markdown("---")
+
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         vendedor = st.selectbox(
@@ -1553,6 +1576,91 @@ elif menu_seleccionado == "🔒 Seguridad y Cuenta":
                     else:
                         st.error(msg)
 
+    # ... (código previo de cambio de contraseña en Seguridad y Cuenta) ...
+
+    st.markdown("---")
+    st.markdown("### 🚀 Acelerador de Implementación (Onboarding)")
+    st.info("Configura tu cuenta o reinicia el sistema desde aquí.")
+
+    # Usamos pestañas para organizar las opciones
+    tab_excel, tab_reset = st.tabs(
+        ["📥 Acelerador: Cargar mi Excel", "⚠️ Botón de Reseteo (Empezar de cero)"]
+    )
+
+    # --- PESTAÑA A: EL EXCEL ---
+    with tab_excel:
+        st.markdown("#### Sube tus propios datos")
+        st.write(
+            "Carga todos tus insumos, productos y recetas en un solo clic usando nuestra plantilla oficial."
+        )
+
+        archivo_subido = st.file_uploader(
+            "Sube tu archivo Plantilla_SaaS.xlsx", type=["xlsx", "xls"], key="up_excel"
+        )
+
+        if archivo_subido is not None:
+            if st.button(
+                "⚡ Iniciar Carga Masiva", type="primary", use_container_width=True
+            ):
+                with st.spinner("Construyendo tu base de datos..."):
+                    exito, msg = controller.importar_excel_onboarding(archivo_subido)
+                    if exito:
+                        st.success(msg)
+                        st.balloons()
+                    else:
+                        st.error(msg)
+
+    # --- PESTAÑA B: EL BOTÓN DEL PÁNICO ---
+    with tab_reset:
+        st.markdown("#### Empezar desde cero")
+        st.error(
+            "⚠️ **ADVERTENCIA:** Esto borrará **TODOS** los insumos, productos, recetas, compras y ventas de tu empresa."
+        )
+
+        confirmar_borrado = st.checkbox(
+            "Entiendo que perderé toda mi información comercial."
+        )
+
+        if confirmar_borrado:
+            if st.button(
+                "🗑️ BORRAR TODA MI BASE DE DATOS",
+                type="primary",
+                use_container_width=True,
+            ):
+                with st.spinner("Eliminando registros..."):
+                    exito, msg = controller.resetear_empresa_completa()
+                    if exito:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+    # --- PESTAÑA C: EL BOTÓN DEL PÁNICO ---
+    with tab_reset:
+        st.markdown("#### 3. Empezar desde cero")
+        st.error(
+            "⚠️ **ADVERTENCIA:** Esto borrará **TODOS** los insumos, productos, recetas, movimientos del kardex, compras y ventas de tu empresa. Esta acción no se puede deshacer."
+        )
+
+        # Un check de seguridad para evitar clics accidentales
+        confirmar_borrado = st.checkbox(
+            "Entiendo que perderé toda mi información comercial."
+        )
+
+        if confirmar_borrado:
+            if st.button(
+                "🗑️ BORRAR TODA MI BASE DE DATOS",
+                type="primary",
+                use_container_width=True,
+            ):
+                with st.spinner("Eliminando registros..."):
+                    exito, msg = controller.resetear_empresa_completa()
+                    if exito:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
 # ==========================================
 # 👑 PANEL SUPERADMIN SAAS (SOLO PARA EL DUEÑO)
 # ==========================================
@@ -1639,25 +1747,11 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
 
                 if exito:
                     st.success(msg)
-                    if usar_plantilla:
-                        with st.spinner(
-                            "⏳ Clonando catálogo plantilla (Insumos, Productos y Recetas)..."
-                        ):
-                            exito_plan, msg_plan = (
-                                controller.inicializar_empresa_desde_plantilla(
-                                    nueva_empresa_id
-                                )
-                            )
-                            if exito_plan:
-                                st.success("✅ " + msg_plan)
-                            else:
-                                st.error("⚠️ " + msg_plan)
+                    st.info(
+                        "💡 Empresa creada en blanco. El cliente debe subir su Excel en el módulo de Seguridad y Cuenta."
+                    )
                 else:
                     st.error(msg)
-            else:
-                st.warning(
-                    "⚠️ Por favor, llena todos los campos obligatorios y selecciona un plan."
-                )
 
 # 14. PANTALLAS DE BIENVENIDA DE ALTO IMPACTO (HERO BANNERS)
 elif menu_seleccionado.startswith("---"):

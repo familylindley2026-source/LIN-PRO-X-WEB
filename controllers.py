@@ -1093,98 +1093,6 @@ class SistemaController:
         finally:
             db.close()
 
-    def inicializar_empresa_desde_plantilla(
-        self, id_nueva_empresa, id_plantilla="PLANTILLA"
-    ):
-        """Clona el catálogo base para un cliente nuevo, reiniciando los stocks a 0."""
-        db = self.SessionFactory()
-        try:
-            # 1. Diccionarios para guardar equivalencias (ID viejo -> ID nuevo)
-            map_insumos = {}
-            map_productos = {}
-
-            # 2. Clonar Insumos
-            insumos_base = db.query(Insumo).filter_by(empresa_id=id_plantilla).all()
-            for ins in insumos_base:
-                nuevo_codigo = f"INS-{datetime.now().strftime('%M%S%f')[:5]}"
-                nuevo_ins = Insumo(
-                    codigo=nuevo_codigo,
-                    nombre=ins.nombre,
-                    categoria=ins.categoria,
-                    unidad_medida=ins.unidad_medida,
-                    costo_promedio=ins.costo_promedio,
-                    stock_actual=0.0,  # <-- ¡STOCK EN CERO PARA EL NUEVO CLIENTE!
-                    activo=True,
-                    empresa_id=id_nueva_empresa,
-                )
-                db.add(nuevo_ins)
-                db.flush()  # Guardar temporalmente para obtener el nuevo ID
-                map_insumos[ins.id] = nuevo_ins.id
-
-            # 3. Clonar Productos Terminados y Catálogo
-            productos_base = (
-                db.query(ProductoTerminado).filter_by(empresa_id=id_plantilla).all()
-            )
-            for prod in productos_base:
-                nuevo_codigo = f"PT-{datetime.now().strftime('%M%S%f')[:5]}"
-                nuevo_prod = ProductoTerminado(
-                    codigo=nuevo_codigo,
-                    nombre=prod.nombre,
-                    linea=prod.linea,
-                    presentacion=prod.presentacion,
-                    es_souvenir=prod.es_souvenir,
-                    costo_unitario=prod.costo_unitario,
-                    precio_venta=prod.precio_venta,
-                    stock_actual=0,
-                    dias_consumo=prod.dias_consumo,
-                    puntos_pv=prod.puntos_pv,
-                    activo=True,
-                    empresa_id=id_nueva_empresa,
-                )
-                db.add(nuevo_prod)
-                db.flush()
-                map_productos[prod.id] = nuevo_prod.id
-
-            # 4. Clonar Recetas (Fórmulas)
-            recetas_base = db.query(Receta).filter_by(empresa_id=id_plantilla).all()
-            for rec in recetas_base:
-                # Solo clonamos la receta si su producto base fue clonado exitosamente
-                if rec.producto_id in map_productos:
-                    nueva_receta = Receta(
-                        nombre=rec.nombre,
-                        volumen_lote_base=rec.volumen_lote_base,
-                        producto_id=map_productos[rec.producto_id],
-                        empresa_id=id_nueva_empresa,
-                    )
-                    db.add(nueva_receta)
-                    db.flush()
-
-                    # 5. Clonar Detalles de la Receta (Ingredientes)
-                    detalles_base = (
-                        db.query(RecetaDetalle).filter_by(receta_id=rec.id).all()
-                    )
-                    for det in detalles_base:
-                        if det.insumo_id in map_insumos:
-                            nuevo_detalle = RecetaDetalle(
-                                receta_id=nueva_receta.id,
-                                insumo_id=map_insumos[det.insumo_id],
-                                cantidad_requerida=det.cantidad_requerida,
-                                cantidad_necesaria=det.cantidad_necesaria,
-                                empresa_id=id_nueva_empresa,
-                            )
-                            db.add(nuevo_detalle)
-
-            db.commit()
-            return (
-                True,
-                f"¡Catálogo base instalado con éxito para la empresa '{id_nueva_empresa}'!",
-            )
-        except Exception as e:
-            db.rollback()
-            return False, f"Error al clonar plantilla: {str(e)}"
-        finally:
-            db.close()
-
     def registrar_nueva_empresa_vacia(
         self, usuario, password, plan, fecha_vencimiento, empresa_id
     ):
@@ -1503,3 +1411,136 @@ class SistemaController:
         except Exception as e:
             print(f"Error generando PDF compra: {e}")
             return None
+
+    def importar_excel_onboarding(self, archivo_excel):
+        """Lee la plantilla de Excel y carga Insumos, Productos y Fórmulas."""
+        import pandas as pd  # Importación local para esta función
+
+        db = self.SessionFactory()
+        try:
+            # 1. Leer todas las hojas del Excel
+            xls = pd.read_excel(archivo_excel, sheet_name=None)
+
+            if not all(hoja in xls for hoja in ["Insumos", "Productos", "Formulas"]):
+                return (
+                    False,
+                    "❌ El Excel no tiene las 3 hojas requeridas: Insumos, Productos, Formulas.",
+                )
+
+            df_insumos = xls["Insumos"]
+            df_productos = xls["Productos"]
+            df_formulas = xls["Formulas"]
+
+            # Diccionarios de memoria para vincular las fórmulas luego
+            mapa_insumos = {}
+            mapa_productos = {}
+
+            # 2. Guardar Insumos
+            for _, row in df_insumos.iterrows():
+                nombre = str(row["Nombre"]).strip().upper()
+                insumo = Insumo(
+                    codigo=f"INS-{datetime.now().strftime('%S%f')[:5]}",
+                    nombre=nombre,
+                    categoria=str(row["Categoria"]).strip(),
+                    unidad_medida=str(row["Unidad"]).strip(),
+                    costo_promedio=float(row["Costo"]),
+                    stock_actual=float(row["Stock"]),
+                    empresa_id=self.empresa_id,
+                )
+                db.add(insumo)
+                db.flush()  # Guardamos para obtener el ID real
+                mapa_insumos[nombre] = insumo.id
+
+            # 3. Guardar Productos
+            for _, row in df_productos.iterrows():
+                nombre = str(row["Nombre"]).strip().upper()
+                producto = ProductoTerminado(
+                    codigo=f"PT-{datetime.now().strftime('%S%f')[:5]}",
+                    nombre=nombre,
+                    presentacion=str(row["Presentacion"]).strip(),
+                    precio_venta=float(row["Precio"]),
+                    stock_actual=0,  # Inician en cero por defecto
+                    empresa_id=self.empresa_id,
+                )
+                db.add(producto)
+                db.flush()
+                mapa_productos[nombre] = producto.id
+
+            # 4. Guardar Fórmulas (Recetas)
+            # Agrupamos por Producto_Base para crear la receta maestra
+            for prod_nombre, grupo in df_formulas.groupby("Producto_Base"):
+                prod_nombre_limpio = str(prod_nombre).strip().upper()
+
+                # Validar que el producto exista en la hoja Productos
+                if prod_nombre_limpio not in mapa_productos:
+                    continue
+
+                volumen_lote = float(grupo["Volumen_Lote"].iloc[0])
+
+                receta = Receta(
+                    nombre=f"FORMULA: {prod_nombre_limpio}",
+                    volumen_lote_base=volumen_lote,
+                    producto_id=mapa_productos[prod_nombre_limpio],
+                    empresa_id=self.empresa_id,
+                )
+                db.add(receta)
+                db.flush()
+
+                # Guardar los detalles (ingredientes) de esa receta
+                for _, row in grupo.iterrows():
+                    ins_nombre = str(row["Insumo_Requerido"]).strip().upper()
+                    if ins_nombre in mapa_insumos:
+                        detalle = RecetaDetalle(
+                            receta_id=receta.id,
+                            insumo_id=mapa_insumos[ins_nombre],
+                            cantidad_requerida=float(row["Cantidad"]),
+                            cantidad_necesaria=float(row["Cantidad"]),
+                            empresa_id=self.empresa_id,
+                        )
+                        db.add(detalle)
+
+            db.commit()
+            return (
+                True,
+                "✅ ¡Carga Masiva Exitosa! Tu sistema está configurado y listo para operar.",
+            )
+
+        except Exception as e:
+            db.rollback()
+            return (
+                False,
+                f"⚠️ Error procesando el Excel. Revisa el formato. Detalle: {str(e)}",
+            )
+        finally:
+            db.close()
+
+    def resetear_empresa_completa(self):
+        """Borra todos los datos operativos de una empresa, dejándola como nueva."""
+        db = self.SessionFactory()
+        try:
+            # El orden de borrado es vital por las llaves foráneas (Foreign Keys)
+            # 1. Borramos auditorías, movimientos y detalles primero
+            db.query(KardexMovimiento).filter_by(empresa_id=self.empresa_id).delete()
+            db.query(VentaDetalle).filter_by(empresa_id=self.empresa_id).delete()
+            db.query(Abono).filter_by(empresa_id=self.empresa_id).delete()
+            db.query(RecetaDetalle).filter_by(empresa_id=self.empresa_id).delete()
+            db.query(GastoOperativo).filter_by(empresa_id=self.empresa_id).delete()
+
+            # 2. Borramos las cabeceras (Ventas, Recetas)
+            db.query(Venta).filter_by(empresa_id=self.empresa_id).delete()
+            db.query(Receta).filter_by(empresa_id=self.empresa_id).delete()
+
+            # 3. Borramos los catálogos y clientes
+            db.query(ProductoTerminado).filter_by(empresa_id=self.empresa_id).delete()
+            db.query(Insumo).filter_by(empresa_id=self.empresa_id).delete()
+            db.query(Proveedor).filter_by(empresa_id=self.empresa_id).delete()
+            # Ojo: No borramos Suscriptor, Asesores, ni la Caja para no romper el Login del usuario.
+
+            db.commit()
+            return True, "✅ Base de datos reseteada con éxito. El sistema está limpio."
+
+        except Exception as e:
+            db.rollback()
+            return False, f"Error al resetear la base de datos: {str(e)}"
+        finally:
+            db.close()
