@@ -1611,7 +1611,6 @@ elif menu_seleccionado == "🔒 Seguridad y Cuenta":
                     else:
                         st.error(msg)
 
-    
     # --- PESTAÑA C: EL BOTÓN DEL PÁNICO ---
     with tab_reset:
         st.markdown("#### 3. Empezar desde cero")
@@ -1730,6 +1729,44 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
                 else:
                     st.error(msg)
 
+    # ==========================================
+    # 🗑️ ZONA DE PELIGRO: ELIMINAR CLIENTES SAAS
+    # ==========================================    
+    st.markdown("---")
+    st.markdown("### 🚨 Zona de Peligro: Dar de baja a un cliente")
+    st.error("Al eliminar una empresa, se borrarán todos sus inventarios, ventas, usuarios y configuración. **Esta acción es irreversible.**")
+        
+    todas_empresas = controller.obtener_todas_las_empresas()
+    lista_nombres_empresas = [e.empresa_id for e in todas_empresas if e.usuario != "LINPRO_MASTER"]
+        
+    if lista_nombres_empresas:
+            with st.container(border=True):
+                empresa_a_borrar = st.selectbox(
+                    "Selecciona la empresa a eliminar del software:", 
+                    ["Seleccione una empresa..."] + lista_nombres_empresas
+                )
+                
+                check_seguridad = st.checkbox("Soy consciente de que borraré la cuenta de este cliente para siempre.", key="check_del_empresa")
+                
+                if st.button("🗑️ ELIMINAR EMPRESA DEFINITIVAMENTE", type="primary", use_container_width=True):
+                    if empresa_a_borrar == "Seleccione una empresa...":
+                        st.warning("Debes seleccionar una empresa de la lista.")
+                    elif not check_seguridad:
+                        st.warning("Debes marcar la casilla de seguridad para confirmar.")
+                    else:
+                        with st.spinner(f"Destruyendo datos de {empresa_a_borrar}..."):
+                            exito, msg = controller.eliminar_empresa_definitivamente(empresa_a_borrar)
+                            if exito:
+                                st.success(msg)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+    else:
+            st.info("No hay clientes registrados en el sistema (además del SuperAdmin).")
+        
+    
+
+        
 # 14. PANTALLAS DE BIENVENIDA DE ALTO IMPACTO (HERO BANNERS)
 elif menu_seleccionado.startswith("---"):
     # Función de Código Limpio para generar Banners impactantes

@@ -7,6 +7,7 @@ from fpdf import FPDF
 from models import (
     Insumo,
     Proveedor,
+    CatalogoProducto,
     ProductoTerminado,
     Receta,
     RecetaDetalle,
@@ -256,9 +257,9 @@ class SistemaController:
     def obtener_catalogo_productos(self):
         with self.SessionFactory() as db:
             return (
-                db.query(ProductoTerminado)
-                .filter(ProductoTerminado.empresa_id == self.empresa_id)
-                .order_by(ProductoTerminado.nombre)
+                db.query(CatalogoProducto)
+                .filter(CatalogoProducto.empresa_id == self.empresa_id)
+                .order_by(CatalogoProducto.nombre)
                 .all()
             )
 
@@ -1542,5 +1543,56 @@ class SistemaController:
         except Exception as e:
             db.rollback()
             return False, f"Error al resetear la base de datos: {str(e)}"
+        finally:
+            db.close()
+
+    def obtener_todas_las_empresas(self):
+        """Obtiene la lista de todos los suscriptores SaaS registrados."""
+        with self.SessionFactory() as db:
+            return db.query(Suscriptor).order_by(Suscriptor.empresa_id).all()
+
+    def eliminar_empresa_definitivamente(self, empresa_id_a_borrar):
+        """Borra absolutamente todo rastro de una empresa, incluyendo su inicio de sesión."""
+        db = self.SessionFactory()
+        try:
+            # 1. Borrar tablas de transacciones y detalles (Las ramas)
+            db.query(KardexMovimiento).filter_by(
+                empresa_id=empresa_id_a_borrar
+            ).delete()
+            db.query(VentaDetalle).filter_by(empresa_id=empresa_id_a_borrar).delete()
+            db.query(Abono).filter_by(empresa_id=empresa_id_a_borrar).delete()
+            db.query(RecetaDetalle).filter_by(empresa_id=empresa_id_a_borrar).delete()
+            db.query(GastoOperativo).filter_by(empresa_id=empresa_id_a_borrar).delete()
+
+            # 2. Borrar cabeceras operativas (El tronco)
+            db.query(Venta).filter_by(empresa_id=empresa_id_a_borrar).delete()
+            db.query(Receta).filter_by(empresa_id=empresa_id_a_borrar).delete()
+
+            # 3. Borrar Catálogos e Inventarios
+            db.query(ProductoTerminado).filter_by(
+                empresa_id=empresa_id_a_borrar
+            ).delete()
+            db.query(CatalogoProducto).filter_by(
+                empresa_id=empresa_id_a_borrar
+            ).delete()
+            db.query(Insumo).filter_by(empresa_id=empresa_id_a_borrar).delete()
+            db.query(Proveedor).filter_by(empresa_id=empresa_id_a_borrar).delete()
+
+            # 4. Borrar Entidades Base
+            db.query(Cliente).filter_by(empresa_id=empresa_id_a_borrar).delete()
+            db.query(Asesor).filter_by(empresa_id=empresa_id_a_borrar).delete()
+            db.query(ControlCaja).filter_by(empresa_id=empresa_id_a_borrar).delete()
+
+            # 5. EL GOLPE FINAL: Borrar el acceso del cliente al sistema
+            db.query(Suscriptor).filter_by(empresa_id=empresa_id_a_borrar).delete()
+
+            db.commit()
+            return (
+                True,
+                f"✅ La empresa '{empresa_id_a_borrar}' y todos sus datos fueron eliminados de los servidores.",
+            )
+        except Exception as e:
+            db.rollback()
+            return False, f"Error al eliminar la empresa: {str(e)}"
         finally:
             db.close()
