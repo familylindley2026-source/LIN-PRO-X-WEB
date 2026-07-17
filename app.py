@@ -31,10 +31,25 @@ if st.session_state.get("autenticado", False):
 
 
 # ---------------------------------------------------------
-# 4. INICIALIZACIÓN DE LA MEMORIA DE SESIÓN
+# 4. INICIALIZACIÓN DE LA MEMORIA DE SESIÓN Y COOKIES
 # ---------------------------------------------------------
+# Inicializamos el gestor de cookies de forma directa (SIN decorador de caché)
+cookie_manager = stx.CookieManager(key="gestor_cookies_linpro")
+
+# Variables temporales para asegurar que la app no colapse mientras lee la cookie
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
+
+# Intentamos leer las cookies guardadas en el navegador
+usuario_guardado = cookie_manager.get(cookie="linpro_user")
+empresa_guardada = cookie_manager.get(cookie="linpro_empresa")
+
+# 🔄 AUTENTICACIÓN AUTOMÁTICA (Si las cookies existen)
+if usuario_guardado and empresa_guardada:
+    st.session_state["autenticado"] = True
+    st.session_state["usuario"] = usuario_guardado
+    st.session_state["empresa_id"] = empresa_guardada
+    controller.empresa_id = empresa_guardada
 
 # ---------------------------------------------------------
 # 5. PANTALLA DE INICIO DE SESIÓN (LOGIN)
@@ -48,7 +63,6 @@ if not st.session_state["autenticado"]:
         "<h3 style='text-align: center;'>Acceso Empresarial</h3>",
         unsafe_allow_html=True,
     )
-
     col1, col2, col3 = st.columns([1, 2, 1])
 
     with col2:
@@ -57,6 +71,11 @@ if not st.session_state["autenticado"]:
                 "👤 Usuario", placeholder="Ej: IVONNE BERNATE"
             )
             clave_input = st.text_input("🔑 Contraseña", type="password")
+
+            # 👇 NUEVO: Casilla de verificación para recordar sesión
+            recordar_sesion = st.checkbox(
+                "✅ Recordar mi sesión en este equipo", value=True
+            )
 
             submit_login = st.form_submit_button(
                 "Ingresar al Sistema", use_container_width=True, type="primary"
@@ -69,18 +88,37 @@ if not st.session_state["autenticado"]:
                     exito, datos_usuario = controller.verificar_acceso(
                         usuario_input, clave_input
                     )
-
                     if exito:
+                        # 1. Guardamos en la memoria temporal (st.session_state) siempre
                         st.session_state["autenticado"] = True
                         st.session_state["usuario"] = datos_usuario["usuario"]
                         st.session_state["empresa_id"] = datos_usuario["empresa_id"]
+
+                        # 2. 🧠 LÓGICA CONDICIONAL DE COOKIES
+                        if recordar_sesion:
+                            # Si marcó la casilla, guardamos la sesión por 30 Días en su disco duro
+                            fecha_expiracion = datetime.now() + timedelta(days=30)
+                            cookie_manager.set(
+                                "linpro_user",
+                                datos_usuario["usuario"],
+                                expires_at=fecha_expiracion,
+                            )
+                            cookie_manager.set(
+                                "linpro_empresa",
+                                datos_usuario["empresa_id"],
+                                expires_at=fecha_expiracion,
+                            )
+                        else:
+                            # Si NO la marcó, borramos cualquier rastro viejo (por si acaso) y solo usará session_state
+                            cookie_manager.delete("linpro_user")
+                            cookie_manager.delete("linpro_empresa")
 
                         st.success("¡Acceso exitoso! Cargando panel...")
                         st.rerun()
                     else:
                         st.error("❌ Usuario o contraseña incorrectos.")
 
-    # 🛑 MURO DE CONTENCIÓN: Si no está autenticado, la lectura muere aquí.
+    # 🛑 MURO DE CONTENCIÓN
     st.stop()
 
 # =====================================================================
@@ -171,8 +209,12 @@ with st.sidebar.expander("🚀 PLANES DE SUSCRIPCIÓN LIN-PRO X WEB"):
 
 st.sidebar.markdown("---")
 
-# CERRAR SESIÓN
+# CERRAR SESIÓN Y DESTRUIR COOKIES
 if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, type="primary"):
+    # Borramos las cookies del navegador
+    cookie_manager.delete("linpro_user")
+    cookie_manager.delete("linpro_empresa")
+    # Limpiamos la sesión de Streamlit
     st.session_state.clear()
     st.rerun()
 
