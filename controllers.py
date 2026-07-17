@@ -4,6 +4,11 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 from fpdf import FPDF
 
+# controllers.py
+import pandas as pd
+
+# Importas tu modelo desde models.py
+
 from models import (
     Insumo,
     Proveedor,
@@ -1546,11 +1551,6 @@ class SistemaController:
         finally:
             db.close()
 
-    def obtener_todas_las_empresas(self):
-        """Obtiene la lista de todos los suscriptores SaaS registrados."""
-        with self.SessionFactory() as db:
-            return db.query(Suscriptor).order_by(Suscriptor.empresa_id).all()
-
     def eliminar_empresa_definitivamente(self, empresa_id_a_borrar):
         """Borra absolutamente todo rastro de una empresa, incluyendo su inicio de sesión."""
         db = self.SessionFactory()
@@ -1596,3 +1596,53 @@ class SistemaController:
             return False, f"Error al eliminar la empresa: {str(e)}"
         finally:
             db.close()
+
+    def obtener_todas_las_empresas(self):
+        """Obtiene la lista de todos los suscriptores SaaS registrados."""
+        with self.SessionFactory() as db:
+            return db.query(Suscriptor).order_by(Suscriptor.empresa_id).all()
+
+    # 👇 A PARTIR DE AQUÍ, TODO PEGADO AL MARGEN IZQUIERDO (Sin espacios al inicio)
+
+
+def procesar_fila_upsert(db_session, modelo, llave_busqueda, datos_fila):
+    """
+    Función adaptativa para realizar Upsert (Actualizar o Insertar).
+    Respeta la integridad de los datos existentes.
+    """
+    registro_existente = db_session.query(modelo).filter_by(**llave_busqueda).first()
+    if registro_existente:
+        for columna, valor in datos_fila.items():
+            setattr(registro_existente, columna, valor)
+        return "Actualizado"
+    else:
+        nuevo_registro = modelo(**datos_fila)
+        db_session.add(nuevo_registro)
+        return "Insertado"
+
+
+def cargar_plantilla_insumos(archivo_excel, db_session):
+    """
+    Lee el Excel y ejecuta el Upsert fila por fila.
+    """
+    # IMPORTANTE: No olvides importar pandas arriba en el archivo si lo moviste
+
+    df_insumos = pd.read_excel(archivo_excel, sheet_name="Insumos")
+    estadisticas = {"Insertados": 0, "Actualizados": 0}
+    for index, fila in df_insumos.iterrows():
+        datos = {
+            "nombre": fila["Nombre"],
+            "categoria": fila["Categoria"],
+            "unidad_medida": fila["Unidad"],  # Corrección de nombre de columna de la BD
+            "costo_promedio": fila["Costo"],  # Corrección de nombre de columna de la BD
+            "stock_actual": fila["Stock"],  # Corrección de nombre de columna de la BD
+        }
+        llave = {"nombre": fila["Nombre"]}
+        resultado = procesar_fila_upsert(db_session, Insumo, llave, datos)
+        estadisticas[resultado] += 1
+    try:
+        db_session.commit()
+        return True, estadisticas
+    except Exception as e:
+        db_session.rollback()
+        return False, str(e)

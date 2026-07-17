@@ -7,6 +7,11 @@ import plotly.express as px
 import extra_streamlit_components as stx  # <-- LIBRERÍA DE COOKIES
 import pytz
 
+# Importas la función desde tu controlador y la sesión de tu base de datos
+import controllers
+from database import SessionLocal  # Asumiendo que así se llama tu conexión
+
+
 # 1. CONFIGURACIÓN DE PÁGINA (Debe ir antes de cualquier otro comando de Streamlit)
 st.set_page_config(page_title="LIN-PRO X WEB", page_icon="🏭", layout="wide")
 
@@ -1595,6 +1600,7 @@ elif menu_seleccionado == "🔒 Seguridad y Cuenta":
             "Carga todos tus insumos, productos y recetas en un solo clic usando nuestra plantilla oficial."
         )
 
+        # Un solo widget para subir el archivo
         archivo_subido = st.file_uploader(
             "Sube tu archivo Plantilla_SaaS.xlsx", type=["xlsx", "xls"], key="up_excel"
         )
@@ -1603,13 +1609,27 @@ elif menu_seleccionado == "🔒 Seguridad y Cuenta":
             if st.button(
                 "⚡ Iniciar Carga Masiva", type="primary", use_container_width=True
             ):
-                with st.spinner("Construyendo tu base de datos..."):
-                    exito, msg = controller.importar_excel_onboarding(archivo_subido)
+                # 1. Abrimos la conexión a la base de datos
+                db_session = SessionLocal()
+
+                with st.spinner("Procesando, actualizando y validando datos..."):
+                    # 2. Llamamos a nuestra nueva función inteligente Upsert
+                    exito, resultado = cargar_plantilla_insumos(
+                        archivo_subido, db_session
+                    )
+
+                    # 3. Mostramos los resultados
                     if exito:
-                        st.success(msg)
+                        st.success("¡Plantilla procesada con éxito!")
+                        st.info(
+                            f"Resumen de la operación: {resultado['Insertados']} nuevos, {resultado['Actualizados']} actualizados."
+                        )
                         st.balloons()
                     else:
-                        st.error(msg)
+                        st.error(f"Ocurrió un error en la carga: {resultado}")
+
+                # 4. Cerramos la conexión a la base de datos
+                db_session.close()
 
     # --- PESTAÑA C: EL BOTÓN DEL PÁNICO ---
     with tab_reset:
@@ -1731,42 +1751,53 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
 
     # ==========================================
     # 🗑️ ZONA DE PELIGRO: ELIMINAR CLIENTES SAAS
-    # ==========================================    
+    # ==========================================
     st.markdown("---")
     st.markdown("### 🚨 Zona de Peligro: Dar de baja a un cliente")
-    st.error("Al eliminar una empresa, se borrarán todos sus inventarios, ventas, usuarios y configuración. **Esta acción es irreversible.**")
-        
-    todas_empresas = controller.obtener_todas_las_empresas()
-    lista_nombres_empresas = [e.empresa_id for e in todas_empresas if e.usuario != "LINPRO_MASTER"]
-        
-    if lista_nombres_empresas:
-            with st.container(border=True):
-                empresa_a_borrar = st.selectbox(
-                    "Selecciona la empresa a eliminar del software:", 
-                    ["Seleccione una empresa..."] + lista_nombres_empresas
-                )
-                
-                check_seguridad = st.checkbox("Soy consciente de que borraré la cuenta de este cliente para siempre.", key="check_del_empresa")
-                
-                if st.button("🗑️ ELIMINAR EMPRESA DEFINITIVAMENTE", type="primary", use_container_width=True):
-                    if empresa_a_borrar == "Seleccione una empresa...":
-                        st.warning("Debes seleccionar una empresa de la lista.")
-                    elif not check_seguridad:
-                        st.warning("Debes marcar la casilla de seguridad para confirmar.")
-                    else:
-                        with st.spinner(f"Destruyendo datos de {empresa_a_borrar}..."):
-                            exito, msg = controller.eliminar_empresa_definitivamente(empresa_a_borrar)
-                            if exito:
-                                st.success(msg)
-                                st.rerun()
-                            else:
-                                st.error(msg)
-    else:
-            st.info("No hay clientes registrados en el sistema (además del SuperAdmin).")
-        
-    
+    st.error(
+        "Al eliminar una empresa, se borrarán todos sus inventarios, ventas, usuarios y configuración. **Esta acción es irreversible.**"
+    )
 
-        
+    todas_empresas = controller.obtener_todas_las_empresas()
+    lista_nombres_empresas = [
+        e.empresa_id for e in todas_empresas if e.usuario != "LINPRO_MASTER"
+    ]
+
+    if lista_nombres_empresas:
+        with st.container(border=True):
+            empresa_a_borrar = st.selectbox(
+                "Selecciona la empresa a eliminar del software:",
+                ["Seleccione una empresa..."] + lista_nombres_empresas,
+            )
+
+            check_seguridad = st.checkbox(
+                "Soy consciente de que borraré la cuenta de este cliente para siempre.",
+                key="check_del_empresa",
+            )
+
+            if st.button(
+                "🗑️ ELIMINAR EMPRESA DEFINITIVAMENTE",
+                type="primary",
+                use_container_width=True,
+            ):
+                if empresa_a_borrar == "Seleccione una empresa...":
+                    st.warning("Debes seleccionar una empresa de la lista.")
+                elif not check_seguridad:
+                    st.warning("Debes marcar la casilla de seguridad para confirmar.")
+                else:
+                    with st.spinner(f"Destruyendo datos de {empresa_a_borrar}..."):
+                        exito, msg = controller.eliminar_empresa_definitivamente(
+                            empresa_a_borrar
+                        )
+                        if exito:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+    else:
+        st.info("No hay clientes registrados en el sistema (además del SuperAdmin).")
+
+
 # 14. PANTALLAS DE BIENVENIDA DE ALTO IMPACTO (HERO BANNERS)
 elif menu_seleccionado.startswith("---"):
     # Función de Código Limpio para generar Banners impactantes
