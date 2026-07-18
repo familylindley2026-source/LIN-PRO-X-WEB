@@ -1419,14 +1419,15 @@ class SistemaController:
             return None
 
     def importar_excel_onboarding(self, archivo_excel):
-        """Lee la plantilla de Excel y carga Insumos, Productos y Fórmulas."""
-        import pandas as pd  # Importación local para esta función
+        """Lee la plantilla de Excel y carga Insumos, Productos y Fórmulas asegurando integridad."""
+        import pandas as pd
+        from datetime import datetime
 
         db = self.SessionFactory()
+
         try:
             # 1. Leer todas las hojas del Excel
             xls = pd.read_excel(archivo_excel, sheet_name=None)
-
             if not all(hoja in xls for hoja in ["Insumos", "Productos", "Formulas"]):
                 return (
                     False,
@@ -1437,9 +1438,8 @@ class SistemaController:
             df_productos = xls["Productos"]
             df_formulas = xls["Formulas"]
 
-            # Diccionarios de memoria para vincular las fórmulas luego
             mapa_insumos = {}
-            mapa_productos = {}
+            mapa_productos = {}  # Guardará estrictamente los IDs de ProductoTerminado
 
             # 2. Guardar Insumos
             for _, row in df_insumos.iterrows():
@@ -1454,7 +1454,7 @@ class SistemaController:
                     empresa_id=self.empresa_id,
                 )
                 db.add(insumo)
-                db.flush()  # Guardamos para obtener el ID real
+                db.flush()  # Obtener el ID instantáneo del insumo
                 mapa_insumos[nombre] = insumo.id
 
             # 3. Guardar Productos en Ambas Tablas Simultáneamente
@@ -1463,7 +1463,7 @@ class SistemaController:
                 presentacion = str(row["Presentacion"]).strip()
                 precio = float(row["Precio"])
 
-                # A. Crear registro en Catalogo
+                # A. Crear registro en CatalogoProducto
                 catalogo = CatalogoProducto(
                     nombre=nombre,
                     presentacion=presentacion,
@@ -1471,10 +1471,8 @@ class SistemaController:
                     empresa_id=self.empresa_id,
                 )
                 db.add(catalogo)
-                db.flush()  # Obtener ID para el mapa
-                mapa_productos[nombre] = catalogo.id
 
-                # B. Crear registro espejo en Productos Terminados
+                # B. Crear registro espejo en ProductoTerminado
                 terminado = ProductoTerminado(
                     codigo=f"PT-{datetime.now().strftime('%S%f')[:5]}",
                     nombre=nombre,
@@ -1484,15 +1482,16 @@ class SistemaController:
                     empresa_id=self.empresa_id,
                 )
                 db.add(terminado)
+                db.flush()  # 💡 CRÍTICO: Genera el ID real en productos_terminados
 
-            db.commit()  # Confirmar ambas inserciones
+                # Guardamos el ID del Producto Terminado para cumplir con el ForeignKey de la Receta
+                mapa_productos[nombre] = terminado.id
 
-            # 4. Guardar Fórmulas (Recetas)
-            # Agrupamos por Producto_Base para crear la receta maestra
+            # 4. Guardar Fórmulas (Recetas) y sus Detalles
             for prod_nombre, grupo in df_formulas.groupby("Producto_Base"):
                 prod_nombre_limpio = str(prod_nombre).strip().upper()
 
-                # Validar que el producto exista en la hoja Productos
+                # Validar que el producto realmente exista en nuestro mapa de ProductoTerminado
                 if prod_nombre_limpio not in mapa_productos:
                     continue
 
@@ -1501,13 +1500,15 @@ class SistemaController:
                 receta = Receta(
                     nombre=f"FORMULA: {prod_nombre_limpio}",
                     volumen_lote_base=volumen_lote,
-                    producto_id=mapa_productos[prod_nombre_limpio],
+                    producto_id=mapa_productos[
+                        prod_nombre_limpio
+                    ],  # Asigna el ID correcto de ProductoTerminado
                     empresa_id=self.empresa_id,
                 )
                 db.add(receta)
-                db.flush()
+                db.flush()  # 💡 CRÍTICO: Genera el ID de la receta para poder asociarle los ingredientes
 
-                # Guardar los detalles (ingredientes) de esa receta
+                # Guardar los ingredientes de esta receta específica
                 for _, row in grupo.iterrows():
                     ins_nombre = str(row["Insumo_Requerido"]).strip().upper()
                     if ins_nombre in mapa_insumos:
@@ -1520,10 +1521,11 @@ class SistemaController:
                         )
                         db.add(detalle)
 
+            # Un solo commit atómico al final para garantizar que se suba TODO o NADA
             db.commit()
             return (
                 True,
-                "✅ ¡Carga Masiva Exitosa! Tu sistema está configurado y listo para operar.",
+                "✅ ¡Carga Masiva Exitosa! Todas las tablas operativas han sido pobladas simultáneamente.",
             )
 
         except Exception as e:
@@ -1532,37 +1534,56 @@ class SistemaController:
                 False,
                 f"⚠️ Error procesando el Excel. Revisa el formato. Detalle: {str(e)}",
             )
+
         finally:
             db.close()
 
     def resetear_empresa_completa(self):
-        """Borra todos los datos operativos de una empresa, dejándola como nueva."""
+        """Borra velozmente todos los datos operativos usando bulk delete de SQLAlchemy."""
         db = self.SessionFactory()
         try:
-            # El orden de borrado es vital por las llaves foráneas (Foreign Keys)
-            # 1. Borramos auditorías, movimientos y detalles primero
-            db.query(KardexMovimiento).filter_by(empresa_id=self.empresa_id).delete()
-            db.query(VentaDetalle).filter_by(empresa_id=self.empresa_id).delete()
-            db.query(Abono).filter_by(empresa_id=self.empresa_id).delete()
-            db.query(RecetaDetalle).filter_by(empresa_id=self.empresa_id).delete()
-            db.query(GastoOperativo).filter_by(empresa_id=self.empresa_id).delete()
+            # Borrado masivo respetando estrictamente la jerarquía de dependencias
+            db.query(KardexMovimiento).filter_by(empresa_id=self.empresa_id).delete(
+                synchronize_session=False
+            )
+            db.query(VentaDetalle).filter_by(empresa_id=self.empresa_id).delete(
+                synchronize_session=False
+            )
+            db.query(Abono).filter_by(empresa_id=self.empresa_id).delete(
+                synchronize_session=False
+            )
+            db.query(RecetaDetalle).filter_by(empresa_id=self.empresa_id).delete(
+                synchronize_session=False
+            )
+            db.query(GastoOperativo).filter_by(empresa_id=self.empresa_id).delete(
+                synchronize_session=False
+            )
 
-            # 2. Borramos las cabeceras (Ventas, Recetas)
-            db.query(Venta).filter_by(empresa_id=self.empresa_id).delete()
-            db.query(Receta).filter_by(empresa_id=self.empresa_id).delete()
+            db.query(Venta).filter_by(empresa_id=self.empresa_id).delete(
+                synchronize_session=False
+            )
+            db.query(Receta).filter_by(empresa_id=self.empresa_id).delete(
+                synchronize_session=False
+            )
 
-            # 3. Borramos los catálogos y clientes
-            db.query(ProductoTerminado).filter_by(empresa_id=self.empresa_id).delete()
-            db.query(Insumo).filter_by(empresa_id=self.empresa_id).delete()
-            db.query(Proveedor).filter_by(empresa_id=self.empresa_id).delete()
-            # Ojo: No borramos Suscriptor, Asesores, ni la Caja para no romper el Login del usuario.
+            db.query(ProductoTerminado).filter_by(empresa_id=self.empresa_id).delete(
+                synchronize_session=False
+            )
+            db.query(CatalogoProducto).filter_by(empresa_id=self.empresa_id).delete(
+                synchronize_session=False
+            )
+            db.query(Insumo).filter_by(empresa_id=self.empresa_id).delete(
+                synchronize_session=False
+            )
+            db.query(Proveedor).filter_by(empresa_id=self.empresa_id).delete(
+                synchronize_session=False
+            )
 
             db.commit()
-            return True, "✅ Base de datos reseteada con éxito. El sistema está limpio."
-
+            return True, "✅ Base de datos limpiada a alta velocidad."
         except Exception as e:
             db.rollback()
-            return False, f"Error al resetear la base de datos: {str(e)}"
+            return False, f"Error al limpiar: {str(e)}"
         finally:
             db.close()
 

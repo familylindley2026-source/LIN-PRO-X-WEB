@@ -1650,25 +1650,20 @@ elif menu_seleccionado == "🔒 Seguridad y Cuenta":
                 "⚡ Iniciar Carga Masiva", type="primary", use_container_width=True
             ):
                 db_session = SessionLocal()
-                with st.spinner("Procesando, actualizando y validando datos..."):
-                    # 💡 RECEPCIÓN ESTRICTA DE 2 VARIABLES
-                    exito, resultado = controller.cargar_plantilla_insumos(
-                        archivo_excel=archivo_subido,
-                        empresa_id=st.session_state["empresa_id"],
+                with st.spinner(
+                    "Procesando Insumos, Productos y Fórmulas simultáneamente..."
+                ):
+                    # 💡 CAMBIO CRÍTICO: Llamamos a la función maestra, NO a la de solo insumos
+                    exito, mensaje = controller.importar_excel_onboarding(
+                        archivo_excel=archivo_subido
                     )
 
                     if exito:
-                        # Si es True, 'resultado' es el diccionario de estadísticas
-                        st.success(
-                            "✅ ¡Carga Masiva Exitosa! Tu sistema está configurado."
-                        )
-                        st.info(
-                            f"Resumen de la operación: {resultado['Insertado']} nuevos, {resultado['Actualizado']} actualizados."
-                        )
+                        st.success("✅ ¡Carga Masiva Exitosa!")
+                        st.info(mensaje)  # Muestra el mensaje de éxito de las 3 tablas
                         st.balloons()
                     else:
-                        # Si es False, 'resultado' es el texto del error
-                        st.error(f"Ocurrió un error en la carga: {resultado}")
+                        st.error(mensaje)
 
                 db_session.close()
 
