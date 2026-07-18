@@ -518,13 +518,21 @@ class SistemaController:
             )
             if not prod:
                 return False, "Producto no encontrado.", ""
-            operacion = "Entrada" if "Suma" in motivo else "Salida"
+
+            # 💡 CORRECCIÓN: Detecta el signo (+), la palabra 'Suma' o la palabra 'Entrada'
+            if "+" in motivo or "Suma" in motivo or "Entrada" in motivo:
+                operacion = "Entrada"
+            else:
+                operacion = "Salida"
+
             if operacion == "Salida" and prod.stock_actual < cantidad:
                 return False, f"Stock insuficiente.", ""
+
             if operacion == "Entrada":
                 prod.stock_actual += cantidad
             else:
                 prod.stock_actual -= cantidad
+
             db.add(
                 KardexMovimiento(
                     producto_id=producto_id,
@@ -592,7 +600,7 @@ class SistemaController:
                 )
                 resultados.append(
                     {
-                        "nombre": f"{p.nombre} - {p.presentacion}",
+                        "nombre": f"{p.nombre}",
                         "sumas": sumas,
                         "restas": restas,
                         "stock_real": p.stock_actual,
@@ -1084,6 +1092,62 @@ class SistemaController:
         except Exception as e:
             db.rollback()
             return False, f"Error: {str(e)}"
+        finally:
+            db.close()
+
+    def eliminar_producto_maestro(self, nombre_producto):
+        """Elimina un producto de TODAS las tablas (Catálogo, Inventario, Recetas y Movimientos)."""
+        db = self.SessionFactory()
+        try:
+            nombre_limpio = nombre_producto.strip().upper()
+
+            # 1. Buscar y borrar en ProductoTerminado (y sus dependencias)
+            prods_pt = (
+                db.query(ProductoTerminado)
+                .filter_by(nombre=nombre_limpio, empresa_id=self.empresa_id)
+                .all()
+            )
+            for pt in prods_pt:
+                # Borrar dependencias directas en cascada
+                db.query(KardexMovimiento).filter_by(
+                    producto_id=pt.id, empresa_id=self.empresa_id
+                ).delete(synchronize_session=False)
+                db.query(VentaDetalle).filter_by(
+                    producto_id=pt.id, empresa_id=self.empresa_id
+                ).delete(synchronize_session=False)
+
+                # Borrar Receta dependiente
+                recetas = (
+                    db.query(Receta)
+                    .filter_by(producto_id=pt.id, empresa_id=self.empresa_id)
+                    .all()
+                )
+                for r in recetas:
+                    db.query(RecetaDetalle).filter_by(
+                        receta_id=r.id, empresa_id=self.empresa_id
+                    ).delete(synchronize_session=False)
+                    db.delete(r)
+
+                # Borrar el Producto Físico
+                db.delete(pt)
+
+            # 2. Buscar y borrar en CatalogoProducto
+            prods_cat = (
+                db.query(CatalogoProducto)
+                .filter_by(nombre=nombre_limpio, empresa_id=self.empresa_id)
+                .all()
+            )
+            for cat in prods_cat:
+                db.delete(cat)
+
+            db.commit()
+            return (
+                True,
+                f"✅ Producto '{nombre_limpio}' eliminado completamente del sistema.",
+            )
+        except Exception as e:
+            db.rollback()
+            return False, f"Error al eliminar: {str(e)}"
         finally:
             db.close()
 

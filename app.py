@@ -236,15 +236,16 @@ menu_opciones = [
     "--- DPTO DE LOGISTICA ---",
     "🏭 Inventario Maestro",
     "🔄 Kardex/Ajustes",
+    "🧴 Catálogo Productos",
     "🗃️ Auditoría",
     "--- GESTION ADMINISTRATIVA ---",
     "👥 CRM y Clientes",
     "💼 Directorio Asesores",
-    "🧴 Catálogo Productos",
     "--- DPTO DE CARTERA ---",
     "💸 Gastos Operativos",
     "💰 Cartera y Abonos",
     "🔒 Seguridad y Cuenta",
+    "--- GESTION GERENCIAL ---",
     "👑 Panel SuperAdmin SaaS",
 ]
 
@@ -1290,9 +1291,9 @@ elif menu_seleccionado == "🔄 Kardex/Ajustes":
     if motivo == "Cambio de producto con compañero":
         st.markdown("#### Detalle del Cambio")
         c1, c2, c3, c4, c5 = st.columns([3, 1, 3, 1, 2])
+        # ✅ AQUÍ YA LO TENÍAS BIEN
         prods = [
-            f"{p.id} - {p.nombre} ({p.presentacion})"
-            for p in controller.obtener_productos_terminados()
+            f"{p.id} - {p.nombre}" for p in controller.obtener_productos_terminados()
         ]
 
         with c1:
@@ -1322,10 +1323,12 @@ elif menu_seleccionado == "🔄 Kardex/Ajustes":
         c_inv, c_prod, c_cant, c_btn = st.columns([2, 3, 1, 1.5])
         with c_inv:
             involucrado = st.text_input("Involucrado:", "N/A")
+
+        # 💡 CORRECCIÓN: Limpiamos la lista en este bloque también
         prods = [
-            f"{p.id} - {p.nombre} ({p.presentacion})"
-            for p in controller.obtener_productos_terminados()
+            f"{p.id} - {p.nombre}" for p in controller.obtener_productos_terminados()
         ]
+
         with c_prod:
             p_ajuste = st.selectbox("Producto:", prods if prods else ["Vacio"])
         with c_cant:
@@ -1449,7 +1452,11 @@ elif menu_seleccionado == "💼 Directorio Asesores":
 # 10. CATÁLOGO PRODUCTOS
 elif menu_seleccionado == "🧴 Catálogo Productos":
     st.title("🧴 Catálogo General (SaaS)")
-    tab1, tab2 = st.tabs(["📚 Ver Catálogo", "➕ Crear/Editar Producto"])
+
+    # 💡 CORRECCIÓN: Agregamos la pestaña de eliminación
+    tab1, tab2, tab3 = st.tabs(
+        ["📚 Ver Catálogo", "➕ Crear/Editar Producto", "🗑️ Eliminar Producto"]
+    )
 
     with tab1:
         data_cat = [
@@ -1480,7 +1487,41 @@ elif menu_seleccionado == "🧴 Catálogo Productos":
                 if controller.guardar_producto_catalogo(
                     c_nom, c_pres, c_prec, c_dias, c_puntos
                 )[0]:
-                    st.success("Creado.")
+                    st.success("Creado exitosamente.")
+
+    # 💡 NUEVA SECCIÓN: Zona de borrado maestro
+    with tab3:
+        st.markdown("### ⚠️ Zona de Peligro: Eliminar Producto")
+        st.warning(
+            "Al eliminar un producto, desaparecerá del inventario, catálogo, recetas y kardex. Ideal para corregir errores de creación."
+        )
+
+        # Obtenemos los nombres limpios
+        productos_existentes = sorted(
+            list(set([p.nombre for p in controller.obtener_productos_terminados()]))
+        )
+
+        with st.form("form_delete_prod"):
+            prod_a_borrar = st.selectbox(
+                "Selecciona el producto a eliminar:",
+                ["Seleccione..."] + productos_existentes,
+            )
+            confirmacion = st.checkbox(
+                "Confirmo que deseo borrar este producto de toda la base de datos."
+            )
+
+            if st.form_submit_button("🗑️ Eliminar Definitivamente", type="primary"):
+                if prod_a_borrar == "Seleccione...":
+                    st.error("Debes seleccionar un producto de la lista.")
+                elif not confirmacion:
+                    st.error("Debes confirmar marcando la casilla de seguridad.")
+                else:
+                    exito, msg = controller.eliminar_producto_maestro(prod_a_borrar)
+                    if exito:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
 
 # 11. GASTOS OPERATIVOS
 elif menu_seleccionado == "💸 Gastos Operativos":
@@ -1737,7 +1778,7 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
         st.markdown("---")
         st.subheader("⚙️ Configuración del Catálogo")
         usar_plantilla = st.checkbox(
-            "📦 Instalar catálogo predeterminado (Plantilla capilar con stock 0)"
+            "🧴 Instalar catálogo predeterminado (Plantilla capilar con stock 0)"
         )
         st.info(
             "💡 Si desmarcas esta opción, el cliente recibirá el software 100% en blanco (Ideal para otros sectores)."
