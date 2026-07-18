@@ -1738,6 +1738,18 @@ elif menu_seleccionado == "🔒 Seguridad y Cuenta":
 # 👑 PANEL SUPERADMIN SAAS (SOLO PARA EL DUEÑO)
 # ==========================================
 elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
+    # 🛡️ 1. LISTA BLANCA Y DOBLE VALIDACIÓN DE SEGURIDAD
+    CORREOS_ADMIN = ["ldelaespriell@gmail.com", "familylindley2026@gmail.com"]
+
+    # Si el correo de la sesión actual NO está en la lista blanca, la ejecución se detiene.
+    # NOTA: Asegúrate de que "usuario_correo" coincida con la variable que guardaste en el login.
+    if st.session_state.get("usuario_correo") not in CORREOS_ADMIN:
+        st.error(
+            "⛔ Acceso Denegado. Privilegios insuficientes. Este módulo es de uso exclusivo para la administración central."
+        )
+        st.stop()  # 🛑 Esto destruye la ejecución de la página, ocultando todo el código inferior.
+
+    # 🏢 2. INTERFAZ DE APROVISIONAMIENTO (Solo visible si pasaste el filtro)
     st.title("👑 Panel Súper Administrador (SaaS)")
     st.markdown(
         "Desde aquí puedes aprovisionar y crear nuevos clientes en tu software."
@@ -1753,7 +1765,6 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
             nueva_empresa_id = st.text_input("ID de Empresa ")
         with c2:
             nuevo_password = st.text_input("Contraseña temporal", type="password")
-            # Agregamos una opción vacía para que se vea limpio al reiniciar
             nuevo_plan = st.selectbox(
                 "Plan de Suscripción",
                 [
@@ -1767,7 +1778,6 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
 
         c3, c4 = st.columns(2)
         with c3:
-            # Cambiamos a Fecha de Activación para que siempre empiece limpia en "Hoy"
             fecha_inicio = st.date_input(
                 "Fecha de Activación", value=datetime.now().date()
             )
@@ -1789,7 +1799,6 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
         )
 
         if submit_crear:
-            # Validamos que haya llenado todo, incluyendo seleccionar un plan válido
             if (
                 nuevo_usuario
                 and nuevo_password
@@ -1807,7 +1816,6 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
                 else:  # Plan Anual (Más vendido)
                     dias_sumar = 365
 
-                # Calculamos la fecha de vencimiento final sumándole los días a la fecha de activación
                 fecha_venc_final = fecha_inicio + timedelta(days=dias_sumar)
 
                 exito, msg = controller.registrar_nueva_empresa_vacia(
