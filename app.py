@@ -67,9 +67,7 @@ if not st.session_state["autenticado"]:
 
     with col2:
         with st.form("formulario_login"):
-            usuario_input = st.text_input(
-                "👤 Usuario", placeholder="Ej: IVONNE BERNATE"
-            )
+            usuario_input = st.text_input("👤 Usuario", placeholder=" ")
             clave_input = st.text_input("🔑 Contraseña", type="password")
 
             # 👇 NUEVO: Casilla de verificación para recordar sesión
@@ -96,22 +94,24 @@ if not st.session_state["autenticado"]:
 
                         # 2. 🧠 LÓGICA CONDICIONAL DE COOKIES
                         if recordar_sesion:
-                            # Si marcó la casilla, guardamos la sesión por 30 Días en su disco duro
+                            # Asignamos una 'key' única a cada ejecución para evitar colisiones en Streamlit
                             fecha_expiracion = datetime.now() + timedelta(days=30)
                             cookie_manager.set(
                                 "linpro_user",
                                 datos_usuario["usuario"],
                                 expires_at=fecha_expiracion,
+                                key="set_user",
                             )
                             cookie_manager.set(
                                 "linpro_empresa",
                                 datos_usuario["empresa_id"],
                                 expires_at=fecha_expiracion,
+                                key="set_empresa",
                             )
                         else:
-                            # Si NO la marcó, borramos cualquier rastro viejo (por si acaso) y solo usará session_state
-                            cookie_manager.delete("linpro_user")
-                            cookie_manager.delete("linpro_empresa")
+                            # Keys únicas también para la eliminación
+                            cookie_manager.delete("linpro_user", key="del_user")
+                            cookie_manager.delete("linpro_empresa", key="del_empresa")
 
                         st.success("¡Acceso exitoso! Cargando panel...")
                         st.rerun()
@@ -211,10 +211,8 @@ st.sidebar.markdown("---")
 
 # CERRAR SESIÓN Y DESTRUIR COOKIES
 if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, type="primary"):
-    # Borramos las cookies del navegador
-    cookie_manager.delete("linpro_user")
-    cookie_manager.delete("linpro_empresa")
-    # Limpiamos la sesión de Streamlit
+    cookie_manager.delete("linpro_user", key="logout_user")
+    cookie_manager.delete("linpro_empresa", key="logout_empresa")
     st.session_state.clear()
     st.rerun()
 
@@ -1251,7 +1249,7 @@ elif menu_seleccionado == "🏭 Inventario Maestro":
             )
             c4, c5, c6, c7 = st.columns(4)
             prov_ins = c4.text_input("Nombre Proveedor (O 'S/N')")
-            und_ins = c5.text_input("Unidad (Ej: ml, gr, UND) *")
+            und_ins = c5.text_input("Unidad (Ej: ml, gr, Und) *")
             stock_ins = c6.number_input("Stock Inicial", value=0.0)
             costo_ins = c7.number_input("Costo Promedio ($)", value=0.0)
 
@@ -1651,26 +1649,27 @@ elif menu_seleccionado == "🔒 Seguridad y Cuenta":
             if st.button(
                 "⚡ Iniciar Carga Masiva", type="primary", use_container_width=True
             ):
-                # 1. Abrimos la conexión a la base de datos
                 db_session = SessionLocal()
-
                 with st.spinner("Procesando, actualizando y validando datos..."):
-                    # 2. Llamamos a nuestra nueva función inteligente Upsert
-                    exito, resultado = cargar_plantilla_insumos(
-                        archivo_subido, db_session
+                    # 💡 RECEPCIÓN ESTRICTA DE 2 VARIABLES
+                    exito, resultado = controller.cargar_plantilla_insumos(
+                        archivo_excel=archivo_subido,
+                        empresa_id=st.session_state["empresa_id"],
                     )
 
-                    # 3. Mostramos los resultados
                     if exito:
-                        st.success("¡Plantilla procesada con éxito!")
+                        # Si es True, 'resultado' es el diccionario de estadísticas
+                        st.success(
+                            "✅ ¡Carga Masiva Exitosa! Tu sistema está configurado."
+                        )
                         st.info(
-                            f"Resumen de la operación: {resultado['Insertados']} nuevos, {resultado['Actualizados']} actualizados."
+                            f"Resumen de la operación: {resultado['Insertado']} nuevos, {resultado['Actualizado']} actualizados."
                         )
                         st.balloons()
                     else:
+                        # Si es False, 'resultado' es el texto del error
                         st.error(f"Ocurrió un error en la carga: {resultado}")
 
-                # 4. Cerramos la conexión a la base de datos
                 db_session.close()
 
     # --- PESTAÑA C: EL BOTÓN DEL PÁNICO ---
@@ -1714,8 +1713,8 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
 
         c1, c2 = st.columns(2)
         with c1:
-            nuevo_usuario = st.text_input("Usuario de acceso (Ej: cueros_express)")
-            nueva_empresa_id = st.text_input("ID de Empresa (Ej: CuerosExpress)")
+            nuevo_usuario = st.text_input("Usuario de acceso ")
+            nueva_empresa_id = st.text_input("ID de Empresa ")
         with c2:
             nuevo_password = st.text_input("Contraseña temporal", type="password")
             # Agregamos una opción vacía para que se vea limpio al reiniciar

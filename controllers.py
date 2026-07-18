@@ -1457,20 +1457,35 @@ class SistemaController:
                 db.flush()  # Guardamos para obtener el ID real
                 mapa_insumos[nombre] = insumo.id
 
-            # 3. Guardar Productos
+            # 3. Guardar Productos en Ambas Tablas Simultáneamente
             for _, row in df_productos.iterrows():
                 nombre = str(row["Nombre"]).strip().upper()
-                producto = ProductoTerminado(
-                    codigo=f"PT-{datetime.now().strftime('%S%f')[:5]}",
+                presentacion = str(row["Presentacion"]).strip()
+                precio = float(row["Precio"])
+
+                # A. Crear registro en Catalogo
+                catalogo = CatalogoProducto(
                     nombre=nombre,
-                    presentacion=str(row["Presentacion"]).strip(),
-                    precio_venta=float(row["Precio"]),
-                    stock_actual=0,  # Inician en cero por defecto
+                    presentacion=presentacion,
+                    precio_publico=precio,
                     empresa_id=self.empresa_id,
                 )
-                db.add(producto)
-                db.flush()
-                mapa_productos[nombre] = producto.id
+                db.add(catalogo)
+                db.flush()  # Obtener ID para el mapa
+                mapa_productos[nombre] = catalogo.id
+
+                # B. Crear registro espejo en Productos Terminados
+                terminado = ProductoTerminado(
+                    codigo=f"PT-{datetime.now().strftime('%S%f')[:5]}",
+                    nombre=nombre,
+                    presentacion=presentacion,
+                    precio_venta=precio,
+                    stock_actual=0,
+                    empresa_id=self.empresa_id,
+                )
+                db.add(terminado)
+
+            db.commit()  # Confirmar ambas inserciones
 
             # 4. Guardar Fórmulas (Recetas)
             # Agrupamos por Producto_Base para crear la receta maestra
@@ -1602,47 +1617,84 @@ class SistemaController:
         with self.SessionFactory() as db:
             return db.query(Suscriptor).order_by(Suscriptor.empresa_id).all()
 
-    # 👇 A PARTIR DE AQUÍ, TODO PEGADO AL MARGEN IZQUIERDO (Sin espacios al inicio)
+    def cargar_plantilla_insumos(self, archivo_excel, empresa_id):
+        """Lee el Excel, verifica existencias y actualiza o inserta de forma autónoma."""
+        import pandas as pd
+        from datetime import datetime
+
+        db = self.SessionFactory()
+
+        try:
+            df_insumos = pd.read_excel(archivo_excel, sheet_name="Insumos")
+            # ✅ EL DICCIONARIO ESTÁ CORRECTAMENTE INICIALIZADO AQUÍ
+            estadisticas = {"Insertado": 0, "Actualizado": 0}
+
+            for index, fila in df_insumos.iterrows():
+                nombre_insumo = str(fila["Nombre"]).strip()
+
+                insumo_existente = (
+                    db.query(Insumo)
+                    .filter_by(nombre=nombre_insumo, empresa_id=empresa_id)
+                    .first()
+                )
+
+                if insumo_existente:
+                    insumo_existente.categoria = str(fila["Categoria"]).strip()
+                    insumo_existente.unidad_medida = str(fila["Unidad"]).strip()
+                    insumo_existente.costo_promedio = float(fila["Costo"])
+                    insumo_existente.stock_actual = float(fila["Stock"])
+                    estadisticas["Actualizado"] += 1
+
+                else:
+                    nuevo_codigo = f"INS-{datetime.now().strftime('%S%f')[:5]}"
+                    nuevo_insumo = Insumo(
+                        codigo=nuevo_codigo,
+                        nombre=nombre_insumo,
+                        categoria=str(fila["Categoria"]).strip(),
+                        unidad_medida=str(fila["Unidad"]).strip(),
+                        costo_promedio=float(fila["Costo"]),
+                        stock_actual=float(fila["Stock"]),
+                        empresa_id=empresa_id,
+                    )
+                    db.add(nuevo_insumo)
+                    estadisticas["Insertado"] += 1
+
+            db.commit()
+            # ✅ RETORNO PERFECTO: BOOLEANO Y DICCIONARIO
+            return True, estadisticas
+
+        except Exception as e:
+            db.rollback()
+            # ✅ RETORNO DE ERROR ALINEADO
+            return (
+                False,
+                f"Error interno al procesar el documento (Posible fallo en lectura Pandas): {str(e)}",
+            )
+
+        finally:
+            db.close()
 
 
-def procesar_fila_upsert(db_session, modelo, llave_busqueda, datos_fila):
+def procesar_fila_upsert(
+    db_session, modelo, llave_busqueda, datos_fila, datos_extra_insert=None
+):
     """
     Función adaptativa para realizar Upsert (Actualizar o Insertar).
-    Respeta la integridad de los datos existentes.
+    Respeta la integridad de los datos y asigna códigos solo a los nuevos.
     """
     registro_existente = db_session.query(modelo).filter_by(**llave_busqueda).first()
+
     if registro_existente:
+        # Si existe, solo actualizamos los datos básicos (NO tocamos el código)
         for columna, valor in datos_fila.items():
             setattr(registro_existente, columna, valor)
         return "Actualizado"
     else:
-        nuevo_registro = modelo(**datos_fila)
+        # 💡 Si es nuevo, unimos los datos básicos con los datos extra (El Código)
+        datos_completos = datos_fila.copy()
+        if datos_extra_insert:
+            datos_completos.update(datos_extra_insert)
+
+        nuevo_registro = modelo(**datos_completos)
         db_session.add(nuevo_registro)
         return "Insertado"
-
-
-def cargar_plantilla_insumos(archivo_excel, db_session):
-    """
-    Lee el Excel y ejecuta el Upsert fila por fila.
-    """
-    # IMPORTANTE: No olvides importar pandas arriba en el archivo si lo moviste
-
-    df_insumos = pd.read_excel(archivo_excel, sheet_name="Insumos")
-    estadisticas = {"Insertados": 0, "Actualizados": 0}
-    for index, fila in df_insumos.iterrows():
-        datos = {
-            "nombre": fila["Nombre"],
-            "categoria": fila["Categoria"],
-            "unidad_medida": fila["Unidad"],  # Corrección de nombre de columna de la BD
-            "costo_promedio": fila["Costo"],  # Corrección de nombre de columna de la BD
-            "stock_actual": fila["Stock"],  # Corrección de nombre de columna de la BD
-        }
-        llave = {"nombre": fila["Nombre"]}
-        resultado = procesar_fila_upsert(db_session, Insumo, llave, datos)
-        estadisticas[resultado] += 1
-    try:
-        db_session.commit()
-        return True, estadisticas
-    except Exception as e:
-        db_session.rollback()
-        return False, str(e)
