@@ -163,23 +163,36 @@ def formato_co(numero, es_moneda=False, decimales=0):
 
 
 # --- FUNCIÓN MAESTRA PARA TABLAS FULL-WIDTH Y ALINEACIÓN PERFECTA ---
-def renderizar_tabla_estilizada(datos, col_izquierda):
+def renderizar_tabla_estilizada(datos, columna_fija=None):
     if not datos:
-        st.info("No hay registros para mostrar en esta sección.")
         return
 
-    df = pd.DataFrame(datos)
-    cols_centro = [c for c in df.columns if c != col_izquierda]
+    import pandas as pd
+    import streamlit as st
 
-    try:
-        styler = (
-            df.style.set_properties(subset=[col_izquierda], **{"text-align": "left"})
-            .set_properties(subset=cols_centro, **{"text-align": "center"})
-            .set_table_styles([{"selector": "th", "props": [("text-align", "center")]}])
-        )
-        st.dataframe(styler, use_container_width=True, hide_index=True)
-    except Exception:
-        st.dataframe(df, use_container_width=True, hide_index=True)
+    df = pd.DataFrame(datos)
+
+    # 1. Clasificación Lógica de Columnas
+    # Buscamos las palabras clave para alinear a la izquierda
+    cols_izq = [
+        col
+        for col in df.columns
+        if any(kw in col.lower() for kw in ["producto", "insumo", "nombre", "detalle"])
+    ]
+
+    # El resto de las columnas (números, fechas, cantidades, IDs) van al centro
+    cols_centro = [col for col in df.columns if col not in cols_izq]
+
+    # 2. Aplicación de Estilos (Pandas Styler)
+    styler = df.style
+
+    if cols_izq:
+        styler = styler.set_properties(subset=cols_izq, **{"text-align": "left"})
+    if cols_centro:
+        styler = styler.set_properties(subset=cols_centro, **{"text-align": "center"})
+
+    # 3. Renderizado final en la interfaz
+    st.dataframe(styler, use_container_width=True, hide_index=True)
 
 
 # ==========================================
@@ -233,17 +246,18 @@ menu_opciones = [
     "📦 Entradas (Compras)",
     "--- DPTO DE PRODUCCION ---",
     "🧪 Producción y Fórmulas",
+    "📈 Plan Maestro (MPS)",
     "--- DPTO DE LOGISTICA ---",
     "🏭 Inventario Maestro",
     "🔄 Kardex/Ajustes",
     "🧴 Catálogo Productos",
     "🗃️ Auditoría",
-    "--- GESTION ADMINISTRATIVA ---",
     "👥 CRM y Clientes",
     "💼 Directorio Asesores",
     "--- DPTO DE CARTERA ---",
     "💸 Gastos Operativos",
     "💰 Cartera y Abonos",
+    "--- DPTO DE SEGURIDAD ---",
     "🔒 Seguridad y Cuenta",
     "--- GESTION GERENCIAL ---",
     "👑 Panel SuperAdmin SaaS",
@@ -1211,6 +1225,126 @@ elif menu_seleccionado == "🧪 Producción y Fórmulas":
                     else:
                         st.error(msg)
 
+# ==========================================
+# 📈 PLAN MAESTRO DE PRODUCCIÓN (MPS)
+# ==========================================
+elif menu_seleccionado == "📈 Plan Maestro (MPS)":
+    st.title("📈 Simulador de Producción (MPS)")
+    st.markdown(
+        "Proyecta la fabricación volumétrica, evalúa costos y genera órdenes de compra."
+    )
+
+    prods_receta = controller.obtener_productos_terminados()
+    lista_prods = [f"{p.id} - {p.nombre}" for p in prods_receta]
+
+    with st.container(border=True):
+        c1, c2, c3 = st.columns([3, 2, 1])
+        with c1:
+            prod_sel = st.selectbox(
+                "Producto_Terminado:", ["Seleccione..."] + lista_prods
+            )
+        with c2:
+            vol_fabricar = st.number_input(
+                "Volumen a fabricar (Ej: 20000 ml):",
+                min_value=1.0,
+                value=4000.0,
+                step=100.0,
+            )
+        with c3:
+            st.write("##")
+            btn_simular = st.button(
+                "⚡ Simular Lote", type="primary", use_container_width=True
+            )
+
+    if btn_simular and prod_sel != "Seleccione...":
+        id_prod = int(prod_sel.split(" - ")[0])
+        nombre_prod_limpio = prod_sel.split(" - ")[1]
+
+        # 💡 Extraemos la nueva variable 'costo_inversion_faltante' al final
+        exito, msg, tabla, compras, costo_total, costo_inversion_faltante = (
+            controller.simular_produccion_mps(id_prod, vol_fabricar)
+        )
+
+        if exito:
+            st.markdown("### 📊 Explosión de Materiales")
+            renderizar_tabla_estilizada(tabla)
+
+            costo_total_str = (
+                f"{costo_total:,.2f}".replace(",", "X")
+                .replace(".", ",")
+                .replace("X", ".")
+            )
+            if costo_total_str.endswith(",00"):
+                costo_total_str = costo_total_str[:-3]
+
+            st.markdown(
+                f"<h4 style='text-align: right; color: #ffcc00;'>Costo Total de Receta: $ {costo_total_str}</h4>",
+                unsafe_allow_html=True,
+            )
+            st.markdown("---")
+
+            if compras:
+                st.error(
+                    "⚠️ Inventario físico insuficiente para cubrir el lote volumétrico. Se requiere inyección de insumos."
+                )
+                st.markdown("### 🛒 Orden de Compra Requerida")
+
+                cols_globos = st.columns(min(len(compras), 4))
+                texto_whatsapp = f"📋 *ORDEN DE COMPRA URGENTE*%0A*Lote volumétrico:* {nombre_prod_limpio} ({vol_fabricar:,.0f})%0A%0A"
+
+                for i, item in enumerate(compras):
+                    col = cols_globos[i % 4]
+                    with col:
+                        # Dibujamos el globo normal
+                        st.metric(
+                            label=item["Insumo"],
+                            value=f"{item['Faltante']} {item['Unidad']}",
+                            delta="Faltante",
+                            delta_color="inverse",
+                        )
+                        # 💡 Inyectamos el costo individual en rojo directamente debajo del globo
+                        st.markdown(
+                            f"<div style='margin-top: -15px; color: #ff4b4b; font-size: 0.95rem; font-weight: bold;'>Costo: $ {item['Costo_Individual']}</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                    texto_whatsapp += f"🔸 {item['Insumo']}: *{item['Faltante']} {item['Unidad']}* (Valor: ${item['Costo_Individual']})%0A"
+
+                # 💡 Formateamos el Costo Total a Invertir (Faltantes) al estilo colombiano
+                costo_inv_str = (
+                    f"{costo_inversion_faltante:,.2f}".replace(",", "X")
+                    .replace(".", ",")
+                    .replace("X", ".")
+                )
+                if costo_inv_str.endswith(",00"):
+                    costo_inv_str = costo_inv_str[:-3]
+
+                st.markdown("<br><hr>", unsafe_allow_html=True)
+
+                # 💡 Gran total en ROJO
+                st.markdown(
+                    f"<h2 style='text-align: right; color: #ff4b4b;'>🚨 Total a Invertir: $ {costo_inv_str}</h2>",
+                    unsafe_allow_html=True,
+                )
+
+                texto_whatsapp += (
+                    f"%0A🚨 *INVERSIÓN TOTAL ESTIMADA:* ${costo_inv_str}%0A"
+                )
+                texto_whatsapp += "%0A_Generado por LIN-PRO X WEB_"
+
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.link_button(
+                    "📲 Enviar Orden por WhatsApp al Proveedor",
+                    f"https://wa.me/?text={texto_whatsapp}",
+                    type="primary",
+                )
+            else:
+                st.success(
+                    "✅ ¡Inventario estabilizado! Tienes materia prima suficiente para ejecutar esta orden de trabajo de inmediato."
+                )
+        else:
+            st.error(msg)
+
 # 5. INVENTARIO MAESTRO
 elif menu_seleccionado == "🏭 Inventario Maestro":
     st.title("🏭 Gestión de Insumos y Proveedores")
@@ -1273,7 +1407,9 @@ elif menu_seleccionado == "🏭 Inventario Maestro":
                     else:
                         st.error("Error al guardar en base de datos.")
 
+# ==========================================
 # 6. KARDEX Y AJUSTES
+# ==========================================
 elif menu_seleccionado == "🔄 Kardex/Ajustes":
     st.title("🔄 Kardex Matemático en Tiempo Real")
 
@@ -1288,51 +1424,79 @@ elif menu_seleccionado == "🔄 Kardex/Ajustes":
     ]
     motivo = st.selectbox("Tipo de Operación:", opciones_kardex)
 
+    # 💡 LÓGICA OPTIMIZADA: Consultamos la BD una sola vez para extraer los objetos completos
+    productos_obj = controller.obtener_productos_terminados()
+    prods = (
+        [f"{p.id} - {p.nombre}" for p in productos_obj] if productos_obj else ["Vacio"]
+    )
+
     if motivo == "Cambio de producto con compañero":
         st.markdown("#### Detalle del Cambio")
         c1, c2, c3, c4, c5 = st.columns([3, 1, 3, 1, 2])
-        # ✅ AQUÍ YA LO TENÍAS BIEN
-        prods = [
-            f"{p.id} - {p.nombre}" for p in controller.obtener_productos_terminados()
-        ]
 
         with c1:
-            p_entra = st.selectbox("Entra (Recibo)", prods if prods else ["Vacio"])
+            p_entra = st.selectbox("Entra (Recibo)", prods)
+            # 📦 Indicador visual de stock (Entrada)
+            if p_entra != "Vacio":
+                id_ent_temp = int(p_entra.split(" - ")[0])
+                prod_ent_obj = next(
+                    (p for p in productos_obj if p.id == id_ent_temp), None
+                )
+                if prod_ent_obj:
+                    st.info(f"📦 Stock actual: **{prod_ent_obj.stock_actual}**")
+
         with c2:
             c_entra = st.number_input("Cant. Entra", min_value=1)
+
         with c3:
-            p_sale = st.selectbox("Sale (Entrego)", prods if prods else ["Vacio"])
+            p_sale = st.selectbox("Sale (Entrego)", prods)
+            # 📦 Indicador visual de stock (Salida)
+            if p_sale != "Vacio":
+                id_sal_temp = int(p_sale.split(" - ")[0])
+                prod_sal_obj = next(
+                    (p for p in productos_obj if p.id == id_sal_temp), None
+                )
+                if prod_sal_obj:
+                    st.info(f"📦 Stock actual: **{prod_sal_obj.stock_actual}**")
+
         with c4:
             c_sale = st.number_input("Cant. Sale", min_value=1)
+
         with c5:
             st.write("##")
             if st.button(
                 "💾 Procesar Cambio", type="primary", use_container_width=True
             ):
-                involucrado = "N/A"
-                id_ent = int(p_entra.split(" - ")[0])
-                id_sal = int(p_sale.split(" - ")[0])
-                exito, msg, tck = controller.procesar_cambio_kardex(
-                    involucrado, id_ent, c_entra, id_sal, c_sale
-                )
-                if exito:
-                    st.success(msg)
+                if "Vacio" not in [p_entra, p_sale]:
+                    involucrado = "N/A"
+                    id_ent = int(p_entra.split(" - ")[0])
+                    id_sal = int(p_sale.split(" - ")[0])
+                    exito, msg, tck = controller.procesar_cambio_kardex(
+                        involucrado, id_ent, c_entra, id_sal, c_sale
+                    )
+                    if exito:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
                 else:
-                    st.error(msg)
+                    st.warning("No hay productos disponibles para hacer el cambio.")
     else:
         c_inv, c_prod, c_cant, c_btn = st.columns([2, 3, 1, 1.5])
         with c_inv:
             involucrado = st.text_input("Involucrado:", "N/A")
 
-        # 💡 CORRECCIÓN: Limpiamos la lista en este bloque también
-        prods = [
-            f"{p.id} - {p.nombre}" for p in controller.obtener_productos_terminados()
-        ]
-
         with c_prod:
-            p_ajuste = st.selectbox("Producto:", prods if prods else ["Vacio"])
+            p_ajuste = st.selectbox("Producto:", prods)
+            # 📦 Indicador visual de stock (Ajuste Regular)
+            if p_ajuste != "Vacio":
+                id_aj = int(p_ajuste.split(" - ")[0])
+                prod_obj = next((p for p in productos_obj if p.id == id_aj), None)
+                if prod_obj:
+                    st.info(f"📦 Stock actual: **{prod_obj.stock_actual}**")
+
         with c_cant:
             c_ajuste = st.number_input("Cant:", min_value=1)
+
         with c_btn:
             st.write("##")
             if st.button("💾 Registrar", type="primary", use_container_width=True):
@@ -1345,6 +1509,8 @@ elif menu_seleccionado == "🔄 Kardex/Ajustes":
                         st.success(msg)
                     else:
                         st.error(msg)
+                else:
+                    st.warning("Debe seleccionar un producto válido.")
 
     st.markdown("---")
 
@@ -1362,6 +1528,7 @@ elif menu_seleccionado == "🔄 Kardex/Ajustes":
         renderizar_tabla_estilizada(data_km, "Producto Terminado")
     else:
         st.info("No hay registros matemáticos en el Kardex.")
+
 
 # 7. AUDITORÍA
 elif menu_seleccionado == "🗃️ Auditoría":

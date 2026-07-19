@@ -1327,6 +1327,143 @@ class SistemaController:
         finally:
             db.close()
 
+    def simular_produccion_mps(self, producto_id, volumen_fabricar):
+        db = self.SessionFactory()
+        try:
+            producto = (
+                db.query(ProductoTerminado)
+                .filter_by(id=producto_id, empresa_id=self.empresa_id)
+                .first()
+            )
+            if not producto or not producto.presentacion:
+                return (
+                    False,
+                    "El producto no tiene una 'presentacion' definida en la base de datos.",
+                    [],
+                    [],
+                    0,
+                    0,
+                )
+
+            presentacion_base = float(producto.presentacion)
+            factor_multiplicador = volumen_fabricar / presentacion_base
+
+            receta = (
+                db.query(Receta)
+                .filter_by(producto_id=producto_id, empresa_id=self.empresa_id)
+                .first()
+            )
+            if not receta:
+                return (
+                    False,
+                    "Este producto no tiene una receta configurada para simular.",
+                    [],
+                    [],
+                    0,
+                    0,
+                )
+
+            detalles = (
+                db.query(RecetaDetalle)
+                .filter_by(receta_id=receta.id, empresa_id=self.empresa_id)
+                .all()
+            )
+
+            tabla_simulacion = []
+            lista_compras = []
+            costo_total_lote = 0
+            # 💡 NUEVA VARIABLE: Acumulador de la inversión necesaria para el faltante
+            total_inversion_faltante = 0
+
+            def formato_colombia(valor):
+                num_str = f"{float(valor):,.2f}"
+                num_str = num_str.replace(",", "X").replace(".", ",").replace("X", ".")
+                return num_str[:-3] if num_str.endswith(",00") else num_str
+
+            for det in detalles:
+                insumo = (
+                    db.query(Insumo)
+                    .filter_by(id=det.insumo_id, empresa_id=self.empresa_id)
+                    .first()
+                )
+                if insumo:
+                    cant_req_unitaria = float(det.cantidad_requerida)
+                    cant_total = cant_req_unitaria * factor_multiplicador
+                    stock_act = float(insumo.stock_actual)
+                    costo_u = float(insumo.costo_promedio)
+
+                    unidad = (
+                        str(insumo.unidad_medida).lower().strip()
+                        if insumo.unidad_medida
+                        else "und"
+                    )
+
+                    # Reglas de Costeo Industrial
+                    if unidad in ["ml", "gr", "g"]:
+                        subtotal = (cant_total * costo_u) / 1000
+                    elif "hr" in unidad or "hora" in unidad:
+                        subtotal = (cant_total * costo_u) / 720
+                    else:
+                        subtotal = cant_total * costo_u
+
+                    costo_total_lote += subtotal
+
+                    str_req = formato_colombia(cant_req_unitaria)
+                    str_stock = formato_colombia(stock_act)
+                    str_total = formato_colombia(cant_total)
+                    str_costo = formato_colombia(costo_u)
+                    str_subtotal = formato_colombia(subtotal)
+
+                    deficit = cant_total - stock_act
+                    if deficit > 0:
+                        # 💡 MODELADO LÓGICO: Calcular el costo exacto del déficit
+                        if unidad in ["ml", "gr", "g"]:
+                            costo_deficit = (deficit * costo_u) / 1000
+                        elif "hr" in unidad or "hora" in unidad:
+                            costo_deficit = (deficit * costo_u) / 720
+                        else:
+                            costo_deficit = deficit * costo_u
+
+                        total_inversion_faltante += costo_deficit
+
+                        lista_compras.append(
+                            {
+                                "Insumo": insumo.nombre,
+                                "Faltante": formato_colombia(deficit),
+                                "Unidad": unidad,
+                                "Costo_Individual": formato_colombia(
+                                    costo_deficit
+                                ),  # Enviamos el costo ya formateado
+                            }
+                        )
+
+                    tabla_simulacion.append(
+                        {
+                            "Id": insumo.id,
+                            "Insumo Requerido": insumo.nombre,
+                            "Cantidad Requerida": f"{str_req} {unidad}",
+                            "Stock Actual": f"{str_stock} {unidad}",
+                            "Cantidad Total": f"{str_total} {unidad}",
+                            "Costo": f"$ {str_costo}",
+                            "Sub Total": f"$ {str_subtotal}",
+                        }
+                    )
+
+            # 💡 NOTA: Añadimos 'total_inversion_faltante' a lo que devuelve la función
+            return (
+                True,
+                "Simulación exitosa",
+                tabla_simulacion,
+                lista_compras,
+                costo_total_lote,
+                total_inversion_faltante,
+            )
+        except Exception as e:
+            # Ajustamos el return de error para que coincida con las 6 variables
+            return False, f"Error en simulador: {str(e)}", [], [], 0, 0
+        finally:
+            db.close()
+
     def generar_pdf_venta(
         self, nro_factura, nombre_cliente, vendedor, medio_pago, carrito, total_neto
     ):
