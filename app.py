@@ -30,9 +30,9 @@ if st.session_state.get("autenticado", False):
     controller.empresa_id = st.session_state["empresa_id"]
 
 
-# ---------------------------------------------------------
+#
 # 4. INICIALIZACIÓN DE LA MEMORIA DE SESIÓN Y COOKIES
-# ---------------------------------------------------------
+#
 # Inicializamos el gestor de cookies de forma directa (SIN decorador de caché)
 cookie_manager = stx.CookieManager(key="gestor_cookies_linpro")
 
@@ -51,9 +51,9 @@ if usuario_guardado and empresa_guardada:
     st.session_state["empresa_id"] = empresa_guardada
     controller.empresa_id = empresa_guardada
 
-# ---------------------------------------------------------
+#
 # 5. PANTALLA DE INICIO DE SESIÓN (LOGIN)
-# ---------------------------------------------------------
+#
 if not st.session_state["autenticado"]:
     st.markdown(
         "<h1 style='text-align: center; color: #00b4d8;'>LIN-PRO X WEB</h1>",
@@ -142,7 +142,7 @@ st.markdown(
 )
 
 
-# --- FUNCIÓN GLOBAL DE FORMATO COLOMBIANO ---
+#  FUNCIÓN GLOBAL DE FORMATO COLOMBIANO
 def formato_co(numero, es_moneda=False, decimales=0):
     """
     Convierte cualquier número al formato de Colombia: 1.500,50
@@ -162,7 +162,7 @@ def formato_co(numero, es_moneda=False, decimales=0):
     return f"$ {texto}" if es_moneda else texto
 
 
-# --- FUNCIÓN MAESTRA PARA TABLAS FULL-WIDTH Y ALINEACIÓN PERFECTA ---
+#  FUNCIÓN MAESTRA PARA TABLAS FULL-WIDTH Y ALINEACIÓN PERFECTA
 def renderizar_tabla_estilizada(datos, columna_fija=None):
     if not datos:
         return
@@ -220,7 +220,7 @@ with st.sidebar.expander("🚀 PLANES DE SUSCRIPCIÓN LIN-PRO X WEB"):
         f"[🟢 ¿Quieres renovar o cambiar tu plan? Pulsa aquí para enviar un mensaje de WhatsApp 🟢](https://wa.me/{NUMERO_WHATSAPP})"
     )
 
-st.sidebar.markdown("---")
+st.sidebar.markdown("")
 
 # CERRAR SESIÓN Y DESTRUIR COOKIES
 if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, type="primary"):
@@ -229,7 +229,7 @@ if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, type="prim
     st.session_state.clear()
     st.rerun()
 
-st.sidebar.markdown("---")
+st.sidebar.markdown("")
 
 st.sidebar.markdown(
     "<div class='titulo-sidebar'>LIN - PRO X WEB</div>", unsafe_allow_html=True
@@ -241,25 +241,25 @@ st.sidebar.markdown(
 
 menu_opciones = [
     "📊 Dashboard",
-    "--- DPTO DE COMPRAS Y VENTAS ---",
+    " DPTO DE COMPRAS Y VENTAS ",
     "🛒 Punto de Venta",
     "📦 Entradas (Compras)",
-    "--- DPTO DE PRODUCCION ---",
+    " DPTO DE PRODUCCION ",
     "🧪 Producción y Fórmulas",
     "📈 Plan Maestro (MPS)",
-    "--- DPTO DE LOGISTICA ---",
+    " DPTO DE LOGISTICA ",
     "🏭 Inventario Maestro",
     "🔄 Kardex/Ajustes",
     "🧴 Catálogo Productos",
     "🗃️ Auditoría",
     "👥 CRM y Clientes",
     "💼 Directorio Asesores",
-    "--- DPTO DE CARTERA ---",
+    " DPTO DE CARTERA ",
     "💸 Gastos Operativos",
     "💰 Cartera y Abonos",
-    "--- DPTO DE SEGURIDAD ---",
+    " DPTO DE SEGURIDAD ",
     "🔒 Seguridad y Cuenta",
-    "--- GESTION GERENCIAL ---",
+    " GESTION GERENCIAL ",
     "👑 Panel SuperAdmin SaaS",
 ]
 
@@ -274,9 +274,9 @@ menu_seleccionado = st.sidebar.radio("Módulos del Sistema:", menu_opciones)
 if menu_seleccionado == "📊 Dashboard":
     st.title("📊 Panel de Control y Analítica Avanzada")
 
-    # ---------------------------------------------------------
+    #
     # EXTRACCIÓN DE DATOS Y PREPARACIÓN (ETL)
-    # ---------------------------------------------------------
+    #
     ventas_crudas = controller.obtener_todas_las_ventas()
     insumos = controller.obtener_insumos()
     productos = controller.obtener_productos_terminados()
@@ -304,9 +304,9 @@ if menu_seleccionado == "📊 Dashboard":
             ]
         )
 
-        # ---------------------------------------------------------
+        #
         # ZONA DE FILTROS ADAPTATIVOS
-        # ---------------------------------------------------------
+        #
         st.markdown("### 🎛️ Filtros de Análisis")
         f_col1, f_col2, f_col3 = st.columns(3)
 
@@ -349,9 +349,9 @@ if menu_seleccionado == "📊 Dashboard":
         if vend_sel != "Todos":
             df_filtrado = df_filtrado[df_filtrado["Vendedor"] == vend_sel]
 
-        # ---------------------------------------------------------
+        #
         # CÁLCULO DE KPIs ESTRATÉGICOS
-        # ---------------------------------------------------------
+        #
         ventas_totales = df_filtrado["Total"].sum()
         num_operaciones = df_filtrado["Factura"].nunique()
         ticket_promedio = ventas_totales / num_operaciones if num_operaciones > 0 else 0
@@ -364,7 +364,7 @@ if menu_seleccionado == "📊 Dashboard":
         )
         capital_total_bodega = capital_insumos + capital_pt
 
-        st.markdown("---")
+        st.markdown("")
 
         # 🎨 INYECCIÓN CSS: Forzar letras y flechas blancas en los KPIs nativos
         st.markdown(
@@ -431,7 +431,7 @@ if menu_seleccionado == "📊 Dashboard":
             f"{len([p for p in insumos if p.stock_actual <= 10])}",
             "Insumos Críticos",
         )
-        st.markdown("---")
+        st.markdown("")
 
         # =========================================================
         # 1. GRÁFICO SUPERIOR: FULL-WIDTH (Comportamiento de Ventas)
@@ -470,7 +470,7 @@ if menu_seleccionado == "📊 Dashboard":
         else:
             st.warning("No hay ventas en los filtros seleccionados.")
 
-        st.markdown("---")
+        st.markdown("")
 
         # =========================================================
         # GRÁFICOS INFERIORES: CUADRÍCULA 2x2 (4 Gráficos)
@@ -710,7 +710,7 @@ elif menu_seleccionado == "🛒 Punto de Venta":
             st.error(f"Error: {e}")
         finally:
             db_fix.close()
-    st.markdown("---")
+    st.markdown("")
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -733,7 +733,7 @@ elif menu_seleccionado == "🛒 Punto de Venta":
             ["Efectivo", "Crédito", "Sistecrédito", "Addi", "Llave", "Bolt", "Otros"],
         )
 
-    st.markdown("---")
+    st.markdown("")
     productos_con_stock = [
         p for p in controller.obtener_productos_terminados() if p.stock_actual > 0
     ]
@@ -796,14 +796,14 @@ elif menu_seleccionado == "🛒 Punto de Venta":
         st.markdown("### 🛒 Detalle de Facturación")
         total_neto = sum(i["subtotal"] for i in st.session_state.carrito)
 
-        # --- ENCABEZADOS AGREGADOS ---
+        #  ENCABEZADOS AGREGADOS
         h1, h2, h3, h4, h5 = st.columns([4, 1.5, 2, 2, 0.5])
         h1.markdown("**PRODUCTO**")
         h2.markdown("**CANTIDAD**")
         h3.markdown("**VALOR UNITARIO**")
         h4.markdown("**VALOR TOTAL**")
         h5.markdown("**🗑️**")
-        st.markdown("---")
+        st.markdown("")
 
         for idx, item in enumerate(st.session_state.carrito):
             c1, c2, c3, c4, c5 = st.columns([4, 1, 1.5, 1.5, 0.5])
@@ -816,7 +816,7 @@ elif menu_seleccionado == "🛒 Punto de Venta":
                     st.session_state.carrito.pop(idx)
                     st.rerun()
 
-        st.markdown("---")
+        st.markdown("")
         col_tot, col_proc = st.columns([3, 1])
         col_tot.markdown(f"### 💰 Total Neto: $ {int(total_neto):,.0f}")
 
@@ -866,7 +866,7 @@ elif menu_seleccionado == "🛒 Punto de Venta":
     # ==========================================
     # 🗑️ ZONA DE ELIMINACIÓN DE VENTAS
     # ==========================================
-    st.write("---")
+    st.write("")
     st.markdown("### 🗑️ Zona de Seguridad: Eliminar Pedido")
     st.info(
         "Si registraste una venta por error, selecciona la factura de la lista. "
@@ -912,12 +912,12 @@ elif menu_seleccionado == "🛒 Punto de Venta":
 elif menu_seleccionado == "📦 Entradas (Compras)":
     st.title("📦 Registro de Pedidos y Entradas")
 
-    # --- AUTO-NUMERACIÓN ---
+    #  AUTO-NUMERACIÓN
     try:
         nro_sugerido = controller.generar_nro_orden_compra()
     except:
         nro_sugerido = "IB-001"
-    # -----------------------
+    # --
 
     col_prov, col_doc, col_comp = st.columns(3)
     proveedores = controller.obtener_proveedores()
@@ -1007,14 +1007,14 @@ elif menu_seleccionado == "📦 Entradas (Compras)":
     if "carrito_compras" in st.session_state and st.session_state.carrito_compras:
         st.markdown("### 🛒 Detalle de Entradas")
 
-        # --- ENCABEZADOS AÑADIDOS ---
+        #  ENCABEZADOS AÑADIDOS
         h1, h2, h3, h4, h5 = st.columns([4, 1.5, 2, 2, 0.5])
         h1.markdown("**PRODUCTO**")
         h2.markdown("**CANTIDAD**")
         h3.markdown("**VALOR UNITARIO**")
         h4.markdown("**VALOR TOTAL**")
         h5.markdown("**🗑️**")
-        st.markdown("---")
+        st.markdown("")
 
         tot = sum(i["precio"] for i in st.session_state.carrito_compras)
 
@@ -1034,7 +1034,7 @@ elif menu_seleccionado == "📦 Entradas (Compras)":
                 st.session_state.carrito_compras.pop(idx)
                 st.rerun()
 
-        st.markdown("---")
+        st.markdown("")
         st.markdown(f"### 💰 GRAN TOTAL: {formato_co(tot, es_moneda=True)}")
 
         if st.button("💾 Registrar Entrada", type="primary"):
@@ -1054,7 +1054,7 @@ elif menu_seleccionado == "📦 Entradas (Compras)":
                 if exito:
                     st.success(msg)
 
-                    # --- BOTONES DE WHATSAPP Y PDF ---
+                    #  BOTONES DE WHATSAPP Y PDF
                     c_wa, c_pdf = st.columns(2)
 
                     with c_wa:
@@ -1084,7 +1084,7 @@ elif menu_seleccionado == "📦 Entradas (Compras)":
     # ==========================================
     # 🗑️ ZONA DE ELIMINACIÓN DE COMPRAS
     # ==========================================
-    st.write("---")
+    st.write("")
     st.markdown("### 🗑️ Zona de Seguridad: Eliminar Compra")
     st.info(
         "Si registraste una compra por error, selecciónala de la lista. Se descontará el stock y se borrará del sistema."
@@ -1281,7 +1281,7 @@ elif menu_seleccionado == "📈 Plan Maestro (MPS)":
                 f"<h4 style='text-align: right; color: #ffcc00;'>Costo Total de Receta: $ {costo_total_str}</h4>",
                 unsafe_allow_html=True,
             )
-            st.markdown("---")
+            st.markdown("")
 
             if compras:
                 st.error(
@@ -1512,7 +1512,7 @@ elif menu_seleccionado == "🔄 Kardex/Ajustes":
                 else:
                     st.warning("Debe seleccionar un producto válido.")
 
-    st.markdown("---")
+    st.markdown("")
 
     km = controller.obtener_kardex_matematico()
     if km:
@@ -1763,7 +1763,7 @@ elif menu_seleccionado == "💰 Cartera y Abonos":
 elif menu_seleccionado == "🔒 Seguridad y Cuenta":
     st.title("🔒 Configuración de Seguridad - LIN - PRO X")
     st.markdown("Administra las credenciales de acceso a tu panel empresarial.")
-    st.write("---")
+    st.write("")
 
     # Tomamos el usuario real de la memoria del sistema
     usuario_actual = st.session_state["usuario"]
@@ -1832,7 +1832,7 @@ elif menu_seleccionado == "🔒 Seguridad y Cuenta":
 
     # ... (código previo de cambio de contraseña en Seguridad y Cuenta) ...
 
-    st.markdown("---")
+    st.markdown("")
     st.markdown("### 🚀 Acelerador de Implementación (Onboarding)")
     st.info("Configura tu cuenta o reinicia el sistema desde aquí.")
 
@@ -1841,7 +1841,7 @@ elif menu_seleccionado == "🔒 Seguridad y Cuenta":
         ["📥 Acelerador: Cargar mi Excel", "⚠️ Botón de Reseteo (Empezar de cero)"]
     )
 
-    # --- PESTAÑA A: EL EXCEL ---
+    #  PESTAÑA A: EL EXCEL
     with tab_excel:
         st.markdown("#### Sube tus propios datos")
         st.write(
@@ -1875,7 +1875,7 @@ elif menu_seleccionado == "🔒 Seguridad y Cuenta":
 
                 db_session.close()
 
-    # --- PESTAÑA C: EL BOTÓN DEL PÁNICO ---
+    #  PESTAÑA C: EL BOTÓN DEL PÁNICO
     with tab_reset:
         st.markdown("#### 3. Empezar desde cero")
         st.error(
@@ -1952,7 +1952,7 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
                 "El sistema calculará el vencimiento automáticamente según el plan."
             )
 
-        st.markdown("---")
+        st.markdown("")
         st.subheader("⚙️ Configuración del Catálogo")
         usar_plantilla = st.checkbox(
             "🧴 Instalar catálogo predeterminado (Plantilla capilar con stock 0)"
@@ -2004,7 +2004,7 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
     # ==========================================
     # 🗑️ ZONA DE PELIGRO: ELIMINAR CLIENTES SAAS
     # ==========================================
-    st.markdown("---")
+    st.markdown("")
     st.markdown("### 🚨 Zona de Peligro: Dar de baja a un cliente")
     st.error(
         "Al eliminar una empresa, se borrarán todos sus inventarios, ventas, usuarios y configuración. **Esta acción es irreversible.**"
@@ -2051,7 +2051,7 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
 
 
 # 14. PANTALLAS DE BIENVENIDA DE ALTO IMPACTO (HERO BANNERS)
-elif menu_seleccionado.startswith("---"):
+elif menu_seleccionado.startswith(""):
     # Función de Código Limpio para generar Banners impactantes
     def renderizar_banner_impacto(icono, titulo, descripcion, color_tema):
         html_banner = f"""
@@ -2129,6 +2129,24 @@ elif menu_seleccionado.startswith("---"):
             "La bóveda financiera. Lleva un control estricto de los gastos operativos y administra las cuentas por cobrar y abonos con el sistema inteligente FIFO.",
             "#2ecc71",
         )  # Verde financiero
+
+    elif "DPTO DE SEGURIDAD" in menu_seleccionado:
+        renderizar_banner_impacto(
+            "🔐",
+            "Departamento de Seguridad",
+            "La bóveda del software. Administra la creación de cuentas de usuario, "
+            "gestiona los niveles de acceso y garantiza la integridad y confidencialidad "
+            "de toda la base de datos operativa.",
+            "#c4353c",
+        )  # Rojo seguridad
+
+    elif "GESTION GERENCIAL" in menu_seleccionado:
+        renderizar_banner_impacto(
+            "📊",
+            "Gestión Gerencial",
+            "El cerebro estratégico. Centraliza los indicadores clave de rendimiento (KPIs), evalúa la rentabilidad general y toma decisiones informadas para impulsar la mejora continua de la operación.",
+            "#0765b3",
+        )  # Azul gerencial
 
     elif "CONFIGURACION" in menu_seleccionado:
         renderizar_banner_impacto(
