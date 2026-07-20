@@ -6,6 +6,7 @@ import urllib.parse
 import plotly.express as px
 import extra_streamlit_components as stx  # <-- LIBRERÍA DE COOKIES
 import pytz
+import time
 
 # Importas la función desde tu controlador y la sesión de tu base de datos
 import controllers
@@ -30,30 +31,44 @@ if st.session_state.get("autenticado", False):
     controller.empresa_id = st.session_state["empresa_id"]
 
 
-#
+# ==========================================
 # 4. INICIALIZACIÓN DE LA MEMORIA DE SESIÓN Y COOKIES
-#
-# Inicializamos el gestor de cookies de forma directa (SIN decorador de caché)
+# ==========================================
 cookie_manager = stx.CookieManager(key="gestor_cookies_linpro")
 
-# Variables temporales para asegurar que la app no colapse mientras lee la cookie
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 
-# Intentamos leer las cookies guardadas en el navegador
-usuario_guardado = cookie_manager.get(cookie="linpro_user")
-empresa_guardada = cookie_manager.get(cookie="linpro_empresa")
+if (
+    not st.session_state.get("login_manual_exitoso", False)
+    and not st.session_state["autenticado"]
+):
+    usuario_guardado = cookie_manager.get(cookie="linpro_user")
+    empresa_guardada = cookie_manager.get(cookie="linpro_empresa")
 
-# 🔄 AUTENTICACIÓN AUTOMÁTICA (Si las cookies existen)
-if usuario_guardado and empresa_guardada:
-    st.session_state["autenticado"] = True
-    st.session_state["usuario"] = usuario_guardado
-    st.session_state["empresa_id"] = empresa_guardada
-    controller.empresa_id = empresa_guardada
+    if usuario_guardado and empresa_guardada:
+        try:
+            datos_cuenta = controller.obtener_datos_suscriptor(usuario_guardado)
+            if datos_cuenta:
+                import pytz
+                from datetime import datetime
 
-#
+                zona_colombia = pytz.timezone("America/Bogota")
+                hoy = datetime.now(zona_colombia).date()
+                dias_restantes = (datos_cuenta.fecha_vencimiento - hoy).days
+
+                st.session_state["autenticado"] = True
+                st.session_state["usuario"] = usuario_guardado
+                st.session_state["empresa_id"] = empresa_guardada
+                st.session_state["plan_nombre"] = datos_cuenta.plan
+                st.session_state["dias_restantes"] = dias_restantes
+                controller.empresa_id = empresa_guardada
+        except:
+            pass
+
+# ==========================================
 # 5. PANTALLA DE INICIO DE SESIÓN (LOGIN)
-#
+# ==========================================
 if not st.session_state["autenticado"]:
     st.markdown(
         "<h1 style='text-align: center; color: #00b4d8;'>LIN-PRO X WEB</h1>",
@@ -64,17 +79,13 @@ if not st.session_state["autenticado"]:
         unsafe_allow_html=True,
     )
     col1, col2, col3 = st.columns([1, 2, 1])
-
     with col2:
         with st.form("formulario_login"):
             usuario_input = st.text_input("👤 Usuario", placeholder=" ")
             clave_input = st.text_input("🔑 Contraseña", type="password")
-
-            # 👇 NUEVO: Casilla de verificación para recordar sesión
             recordar_sesion = st.checkbox(
                 "✅ Recordar mi sesión en este equipo", value=True
             )
-
             submit_login = st.form_submit_button(
                 "Ingresar al Sistema", use_container_width=True, type="primary"
             )
@@ -87,14 +98,18 @@ if not st.session_state["autenticado"]:
                         usuario_input, clave_input
                     )
                     if exito:
-                        # 1. Guardamos en la memoria temporal (st.session_state) siempre
+                        st.session_state["login_manual_exitoso"] = True
+
                         st.session_state["autenticado"] = True
                         st.session_state["usuario"] = datos_usuario["usuario"]
                         st.session_state["empresa_id"] = datos_usuario["empresa_id"]
+                        st.session_state["plan_nombre"] = datos_usuario["plan"]
+                        st.session_state["dias_restantes"] = datos_usuario[
+                            "dias_restantes"
+                        ]
 
                         # 2. 🧠 LÓGICA CONDICIONAL DE COOKIES
                         if recordar_sesion:
-                            # Asignamos una 'key' única a cada ejecución para evitar colisiones en Streamlit
                             fecha_expiracion = datetime.now() + timedelta(days=30)
                             cookie_manager.set(
                                 "linpro_user",
@@ -109,15 +124,23 @@ if not st.session_state["autenticado"]:
                                 key="set_empresa",
                             )
                         else:
-                            # Keys únicas también para la eliminación
-                            cookie_manager.delete("linpro_user", key="del_user")
-                            cookie_manager.delete("linpro_empresa", key="del_empresa")
+                            # 🛡️ LÓGICA DEFENSIVA: Evitamos el KeyError si la cookie ya no existe
+                            try:
+                                cookie_manager.delete("linpro_user", key="del_user")
+                            except KeyError:
+                                pass
+
+                            try:
+                                cookie_manager.delete(
+                                    "linpro_empresa", key="del_empresa"
+                                )
+                            except KeyError:
+                                pass
 
                         st.success("¡Acceso exitoso! Cargando panel...")
                         st.rerun()
                     else:
                         st.error("❌ Usuario o contraseña incorrectos.")
-
     # 🛑 MURO DE CONTENCIÓN
     st.stop()
 
@@ -198,10 +221,27 @@ def renderizar_tabla_estilizada(datos, columna_fija=None):
 # ==========================================
 # 🗂️ BARRA DE NAVEGACIÓN LATERAL
 # ==========================================
+# 💡 1. Extracción dinámica de datos desde la sesión
 usuario_logeado = st.session_state.get("usuario", "Usuario")
+
+# Intentamos obtener el plan y los días desde la sesión; si no existen, ponemos valores por defecto
+plan_activo = st.session_state.get("plan_nombre", "Sin Plan Asignado")
+dias_restantes = st.session_state.get("dias_restantes", 0)
+
+# 💡 2. Renderizado Visual
 st.sidebar.markdown(f"### 👤 Bienvenido: {usuario_logeado}")
-st.sidebar.markdown("⭐ **Plan Activo:** Plan Mensual (Distribuidores)")
-st.sidebar.success("⏳ **Tiempo restante: 13 días**")
+st.sidebar.markdown(f"⭐ **Plan Activo:** {plan_activo}")
+
+# 💡 3. Jerarquía Visual y Lógica de Alertas de Suscripción
+if dias_restantes > 5:
+    # Todo en orden (Verde)
+    st.sidebar.success(f"⏳ **Tiempo restante: {dias_restantes} días**")
+elif dias_restantes > 0:
+    # Alerta preventiva (Amarillo)
+    st.sidebar.warning(f"⚠️ **Tiempo restante: {dias_restantes} días (Renueva pronto)**")
+else:
+    # Suscripción vencida (Rojo)
+    st.sidebar.error("🚨 **Suscripción vencida. Contacta a soporte.**")
 
 with st.sidebar.expander("🚀 PLANES DE SUSCRIPCIÓN LIN-PRO X WEB"):
     st.markdown("""
@@ -222,46 +262,69 @@ with st.sidebar.expander("🚀 PLANES DE SUSCRIPCIÓN LIN-PRO X WEB"):
 
 st.sidebar.markdown("")
 
-# CERRAR SESIÓN Y DESTRUIR COOKIES
+import time  # (Asegúrate de que 'import time' esté al principio de tu archivo app.py)
+
+# CERRAR SESIÓN Y DESTRUIR COOKIES DE FORMA SEGURA
+st.sidebar.markdown("")
 if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True, type="primary"):
-    cookie_manager.delete("linpro_user", key="logout_user")
-    cookie_manager.delete("linpro_empresa", key="logout_empresa")
-    st.session_state.clear()
+    # 🛡️ Borrado defensivo
+    try:
+        cookie_manager.delete("linpro_user", key="logout_user")
+    except KeyError:
+        pass
+
+    try:
+        cookie_manager.delete("linpro_empresa", key="logout_empresa")
+    except KeyError:
+        pass
+
+    # Pausamos 0.5 segundos para que el navegador elimine físicamente la cookie
+    time.sleep(0.5)
+
+    # Limpieza total de la memoria RAM del servidor
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+
     st.rerun()
 
-st.sidebar.markdown("")
-
-st.sidebar.markdown(
-    "<div class='titulo-sidebar'>LIN - PRO X WEB</div>", unsafe_allow_html=True
-)
-st.sidebar.markdown(
-    f"<div class='subtitulo-sidebar'>{usuario_logeado} | Costos & Planta</div>",
-    unsafe_allow_html=True,
-)
-
-menu_opciones = [
-    "📊 Dashboard",
-    " DPTO DE COMPRAS Y VENTAS ",
-    "🛒 Punto de Venta",
-    "📦 Entradas (Compras)",
-    " DPTO DE PRODUCCION ",
-    "🧪 Producción y Fórmulas",
-    "📈 Plan Maestro (MPS)",
-    " DPTO DE LOGISTICA ",
-    "🏭 Inventario Maestro",
-    "🔄 Kardex/Ajustes",
-    "🧴 Catálogo Productos",
-    "🗃️ Auditoría",
-    "👥 CRM y Clientes",
-    "💼 Directorio Asesores",
-    " DPTO DE CARTERA ",
-    "💸 Gastos Operativos",
-    "💰 Cartera y Abonos",
-    " DPTO DE SEGURIDAD ",
-    "🔒 Seguridad y Cuenta",
-    " GESTION GERENCIAL ",
-    "👑 Panel SuperAdmin SaaS",
+# ==========================================
+# 🛡️ PAYWALL: CONTROL DE ACCESO
+# ==========================================
+CORREOS_ADMIN = [
+    "LINPRO_MASTER",
+    "ldelaespriell@gmail.com",
+    "familylindley2026@gmail.com",
 ]
+
+if dias_restantes <= 0 and usuario_logeado not in CORREOS_ADMIN:
+    menu_opciones = ["🚀 Planes de Suscripción"]
+    st.sidebar.error("🚨 ACCESO RESTRINGIDO")
+    st.sidebar.warning("⚠️ Tu suscripción ha finalizado. Adquiere un nuevo plan.")
+else:
+    menu_opciones = [
+        "📊 Dashboard",
+        " DPTO DE COMPRAS Y VENTAS ",
+        "🛒 Punto de Venta",
+        "📦 Entradas (Compras)",
+        " DPTO DE PRODUCCION ",
+        "🧪 Producción y Fórmulas",
+        "📈 Plan Maestro (MPS)",
+        " DPTO DE LOGISTICA ",
+        "🏭 Inventario Maestro",
+        "🔄 Kardex/Ajustes",
+        "🧴 Catálogo Productos",
+        "🗃️ Auditoría",
+        "👥 CRM y Clientes",
+        "💼 Directorio Asesores",
+        " DPTO DE CARTERA ",
+        "💸 Gastos Operativos",
+        "💰 Cartera y Abonos",
+        " DPTO DE SEGURIDAD ",
+        "🔒 Seguridad y Cuenta",
+        " GESTION GERENCIAL ",
+        "👑 Panel SuperAdmin SaaS",
+        "🚀 Planes de Suscripción",
+    ]
 
 menu_seleccionado = st.sidebar.radio("Módulos del Sistema:", menu_opciones)
 
@@ -940,7 +1003,7 @@ elif menu_seleccionado == "📦 Entradas (Compras)":
     with col_doc:
         nro_factura = st.text_input("N° Factura / Orden", value=nro_sugerido)
     with col_comp:
-        comprador_sel = st.selectbox("Comprador", ["Ivonne Bernate", "Admin", "Otro"])
+        comprador_sel = st.selectbox("Comprador", ["Admin", "Otro"])
 
     tipo_compra = st.radio(
         "Tipo de Catálogo:", ["Insumos", "Productos Terminados"], horizontal=True
@@ -1529,6 +1592,48 @@ elif menu_seleccionado == "🔄 Kardex/Ajustes":
     else:
         st.info("No hay registros matemáticos en el Kardex.")
 
+    # ==========================================
+    # 🗑️ ZONA DE SEGURIDAD: REVERSIÓN DE KARDEX
+    # ==========================================
+    st.write("")
+    st.markdown("### 🗑️ Zona de Seguridad: Revertir Ajuste")
+    st.info(
+        "Si cometiste un error al registrar un ajuste manual, selecciónalo de la lista. El sistema lo eliminará y recalculará el stock automáticamente."
+    )
+
+    movimientos_recientes = controller.obtener_ajustes_manuales()
+
+    with st.form("form_eliminar_movimiento"):
+        if movimientos_recientes:
+            opciones_mov = [
+                f"{m.id} - {m.producto.nombre if m.producto else 'Desconocido'} | {m.motivo} | Cant: {m.cantidad}"
+                for m in movimientos_recientes
+            ]
+            mov_seleccionado = st.selectbox(
+                "Selecciona el movimiento a eliminar:",
+                ["Seleccione un registro..."] + opciones_mov,
+            )
+        else:
+            mov_seleccionado = "Seleccione un registro..."
+            st.warning("No hay ajustes manuales recientes para revertir.")
+
+        submit_borrar_mov = st.form_submit_button(
+            "🗑️ Eliminar Movimiento y Corregir Stock", type="primary"
+        )
+
+        if submit_borrar_mov:
+            if mov_seleccionado != "Seleccione un registro...":
+                # Extraemos el ID numérico del inicio del texto (Ej: "145 - Aceite...")
+                id_a_borrar = int(mov_seleccionado.split(" - ")[0])
+                exito, mensaje = controller.eliminar_movimiento_kardex(id_a_borrar)
+
+                if exito:
+                    st.success(mensaje)
+                    st.rerun()
+                else:
+                    st.error(mensaje)
+            else:
+                st.warning("Debes seleccionar un movimiento válido de la lista.")
 
 # 7. AUDITORÍA
 elif menu_seleccionado == "🗃️ Auditoría":
@@ -1905,16 +2010,20 @@ elif menu_seleccionado == "🔒 Seguridad y Cuenta":
 # 👑 PANEL SUPERADMIN SAAS (SOLO PARA EL DUEÑO)
 # ==========================================
 elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
-    # 🛡️ 1. LISTA BLANCA Y DOBLE VALIDACIÓN DE SEGURIDAD
-    CORREOS_ADMIN = ["ldelaespriell@gmail.com", "familylindley2026@gmail.com"]
+    # 🛡️ 1. LISTA BLANCA HOMOLOGADA
+    # 💡 CORRECCIÓN: Agregamos "LINPRO_MASTER" a los administradores autorizados
+    CORREOS_ADMIN = [
+        "LINPRO_MASTER",
+        "ldelaespriell@gmail.com",
+        "familylindley2026@gmail.com",
+    ]
 
-    # Si el correo de la sesión actual NO está en la lista blanca, la ejecución se detiene.
-    # NOTA: Asegúrate de que "usuario_correo" coincida con la variable que guardaste en el login.
-    if st.session_state.get("usuario_correo") not in CORREOS_ADMIN:
+    # 💡 CORRECCIÓN: Buscamos la variable "usuario" (la misma del Login)
+    if st.session_state.get("usuario") not in CORREOS_ADMIN:
         st.error(
             "⛔ Acceso Denegado. Privilegios insuficientes. Este módulo es de uso exclusivo para la administración central."
         )
-        st.stop()  # 🛑 Esto destruye la ejecución de la página, ocultando todo el código inferior.
+        st.stop()  # 🛑 Esto destruye la ejecución de la página
 
     # 🏢 2. INTERFAZ DE APROVISIONAMIENTO (Solo visible si pasaste el filtro)
     st.title("👑 Panel Súper Administrador (SaaS)")
@@ -2049,6 +2158,36 @@ elif menu_seleccionado == "👑 Panel SuperAdmin SaaS":
     else:
         st.info("No hay clientes registrados en el sistema (además del SuperAdmin).")
 
+# ==========================================
+# 🏷️ PANTALLA DE RENOVACIÓN DE SUSCRIPCIÓN
+# ==========================================
+elif menu_seleccionado == "🚀 Planes de Suscripción":
+    st.title("🚀 Planes de Suscripción LIN-PRO X WEB")
+    if st.session_state.get("dias_restantes", 0) <= 0 and st.session_state.get(
+        "usuario"
+    ) not in [
+        "LINPRO_MASTER",
+        "ldelaespriell@gmail.com",
+        "familylindley2026@gmail.com",
+    ]:
+        st.error(
+            "🚨 Tu suscripción se ha agotado. Tu cuenta y datos están completamente seguros, pero requieres renovar tu plan para seguir operando."
+        )
+    else:
+        st.success(
+            f"✅ Tienes {st.session_state.get('dias_restantes', 0)} días restantes en tu plan actual."
+        )
+
+    st.markdown("""
+    ### Selecciona un plan a tu medida:
+    - 🥉 **Plan Personal (para distribuidores):** 25.000 COP / mes
+    - 🥈 **Plan Trimestral (Constructores):** 65.000 COP / trimestre
+    - 🥇 **Plan Semestral (para líderes):** 130.000 COP / semestre
+    - 💎 **Plan Anual (Más vendido):** 199.000 COP / año *(4 meses GRATIS)*
+    """)
+    st.markdown(
+        f"[🟢 Contactar a Soporte y Renovar (WhatsApp) 🟢](https://wa.me/{NUMERO_WHATSAPP})"
+    )
 
 # 14. PANTALLAS DE BIENVENIDA DE ALTO IMPACTO (HERO BANNERS)
 elif menu_seleccionado.startswith(""):

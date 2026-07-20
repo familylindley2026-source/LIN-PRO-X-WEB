@@ -570,34 +570,54 @@ class SistemaController:
             )
 
     def obtener_kardex_matematico(self):
+        # 💡 Importamos func para poder hacer sumatorias masivas
+        from sqlalchemy import func
+
         with self.SessionFactory() as db:
+            # 1. Traemos todos los productos (1 solo viaje a la BD)
             productos = (
                 db.query(ProductoTerminado)
                 .filter(ProductoTerminado.empresa_id == self.empresa_id)
                 .all()
             )
+
+            # 2. 🚀 LA COPIA LOCAL: Traemos TODAS las entradas sumadas de golpe (1 solo viaje)
+            entradas_brutas = (
+                db.query(
+                    KardexMovimiento.producto_id,
+                    func.sum(KardexMovimiento.cantidad).label("total"),
+                )
+                .filter(
+                    KardexMovimiento.empresa_id == self.empresa_id,
+                    KardexMovimiento.operacion == "Entrada",
+                )
+                .group_by(KardexMovimiento.producto_id)
+                .all()
+            )
+            # Convertimos a Diccionario (Tabla Hash) para velocidad extrema en RAM
+            mapa_entradas = {r.producto_id: r.total for r in entradas_brutas}
+
+            # 3. 🚀 LA COPIA LOCAL: Traemos TODAS las salidas sumadas de golpe (1 solo viaje)
+            salidas_brutas = (
+                db.query(
+                    KardexMovimiento.producto_id,
+                    func.sum(KardexMovimiento.cantidad).label("total"),
+                )
+                .filter(
+                    KardexMovimiento.empresa_id == self.empresa_id,
+                    KardexMovimiento.operacion == "Salida",
+                )
+                .group_by(KardexMovimiento.producto_id)
+                .all()
+            )
+            mapa_salidas = {r.producto_id: r.total for r in salidas_brutas}
+
+            # 4. Ensamblamos los resultados sin volver a tocar la Base de Datos
             resultados = []
             for p in productos:
-                sumas = (
-                    db.query(func.sum(KardexMovimiento.cantidad))
-                    .filter(
-                        KardexMovimiento.empresa_id == self.empresa_id,
-                        KardexMovimiento.producto_id == p.id,
-                        KardexMovimiento.operacion == "Entrada",
-                    )
-                    .scalar()
-                    or 0
-                )
-                restas = (
-                    db.query(func.sum(KardexMovimiento.cantidad))
-                    .filter(
-                        KardexMovimiento.empresa_id == self.empresa_id,
-                        KardexMovimiento.producto_id == p.id,
-                        KardexMovimiento.operacion == "Salida",
-                    )
-                    .scalar()
-                    or 0
-                )
+                sumas = mapa_entradas.get(p.id, 0)
+                restas = mapa_salidas.get(p.id, 0)
+
                 resultados.append(
                     {
                         "nombre": f"{p.nombre}",
@@ -989,10 +1009,18 @@ class SistemaController:
                 .first()
             )
             if usuario_db:
+                import pytz
+                from datetime import datetime
+
+                zona_colombia = pytz.timezone("America/Bogota")
+                hoy = datetime.now(zona_colombia).date()
+                dias_restantes = (usuario_db.fecha_vencimiento - hoy).days
+
                 return True, {
                     "usuario": usuario_db.usuario,
                     "empresa_id": usuario_db.empresa_id,
                     "plan": usuario_db.plan,
+                    "dias_restantes": dias_restantes,
                 }
             return False, None
         finally:
@@ -1893,6 +1921,73 @@ class SistemaController:
                 f"Error interno al procesar el documento (Posible fallo en lectura Pandas): {str(e)}",
             )
 
+        finally:
+            db.close()
+
+    def obtener_ajustes_manuales(self):
+        """Obtiene los últimos movimientos manuales del Kardex para posibles reversiones."""
+        from sqlalchemy.orm import joinedload
+
+        with self.SessionFactory() as db:
+            return (
+                db.query(KardexMovimiento)
+                .options(joinedload(KardexMovimiento.producto))
+                .filter(
+                    KardexMovimiento.empresa_id == self.empresa_id,
+                    # Filtramos para que solo muestre ajustes manuales y no compras/ventas
+                    KardexMovimiento.motivo.in_(
+                        [
+                            "Ajuste (+) Entrada",
+                            "Préstamo: Me devuelven (+) Suma",
+                            "Consumo Personal (-) Resta",
+                            "Préstamo: Yo presto (-) Resta",
+                            "Obsequio para cliente (-) Resta",
+                            "Merma/Pérdida (-) Resta",
+                            "Cambio de producto con compañero",
+                        ]
+                    ),
+                )
+                .order_by(KardexMovimiento.id.desc())
+                .limit(50)
+                .all()
+            )
+
+    def eliminar_movimiento_kardex(self, movimiento_id):
+        """Elimina un movimiento del Kardex y revierte el impacto en el stock físico."""
+        db = self.SessionFactory()
+        try:
+            mov = (
+                db.query(KardexMovimiento)
+                .filter_by(id=movimiento_id, empresa_id=self.empresa_id)
+                .first()
+            )
+            if not mov:
+                return False, "El movimiento no existe o ya fue eliminado."
+
+            # 1. Recuperar el producto afectado
+            prod = (
+                db.query(ProductoTerminado)
+                .filter_by(id=mov.producto_id, empresa_id=self.empresa_id)
+                .first()
+            )
+
+            # 2. Reversión Matemática: Si entró, lo restamos; si salió, lo sumamos.
+            if prod:
+                if mov.operacion == "Entrada":
+                    prod.stock_actual -= mov.cantidad
+                elif mov.operacion == "Salida":
+                    prod.stock_actual += mov.cantidad
+
+            # 3. Destruir el registro del historial
+            db.delete(mov)
+            db.commit()
+            return (
+                True,
+                f"Movimiento revertido con éxito. El stock de '{prod.nombre if prod else 'Desconocido'}' ha sido corregido.",
+            )
+        except Exception as e:
+            db.rollback()
+            return False, f"Error interno: {str(e)}"
         finally:
             db.close()
 
